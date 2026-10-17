@@ -32,6 +32,9 @@ local DEFAULT_CONFIG = {
 	uiWidth = 640,
 	uiHeight = 460,
 	fflags = {},
+	theme = "Blue",
+	savedKey = "",
+	linkedUserId = 0, -- Locks the key session to this specific Roblox User ID
 	colors = {
 		Main = {10, 10, 10},
 		Tab = {20, 20, 20},
@@ -43,6 +46,55 @@ local DEFAULT_CONFIG = {
 		Stroke = {35, 35, 35},
 	},
 }
+
+-- ─── Key system (GitHub JSON + Base64 + HWID/UserId Lock) ──
+local GITHUB_KEYS_URL = "https://raw.githubusercontent.com/complextheskid/Plexer/main/keys.json"
+
+local FALLBACK_KEYS = {
+	["UFxFWFJLRVlTVFJJTkdLRVlMSU5LRURTVEFSRFhYWFZDX1hYVj0="] = true,
+	["Q09NUExFWEtFWUFSUExFWENPTVBMRVgyMDI2S0FZQUFBQUFBBQ=="] = true,
+}
+
+local FETCHED_KEYS = nil
+
+local function normalizeKey(k)
+	return (k or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function fetchGitHubKeys()
+	if FETCHED_KEYS then return FETCHED_KEYS end
+
+	local keysTable = {}
+	local success, result = pcall(function()
+		return game:HttpGet(GITHUB_KEYS_URL, true)
+	end)
+
+	if success and result and #result > 0 then
+		local jsonSuccess, decoded = pcall(function()
+			return HttpService:JSONDecode(result)
+		end)
+
+		if jsonSuccess and type(decoded) == "table" then
+			for k, v in pairs(decoded) do
+				if type(v) == "string" then
+					keysTable[normalizeKey(v)] = true
+				elseif type(k) == "string" and v == true then
+					keysTable[normalizeKey(k)] = true
+				end
+			end
+			FETCHED_KEYS = keysTable
+			return FETCHED_KEYS
+		end
+	end
+
+	FETCHED_KEYS = FALLBACK_KEYS
+	return FETCHED_KEYS
+end
+
+local function isKeyValid(k)
+	local validKeys = fetchGitHubKeys()
+	return validKeys[normalizeKey(k)] == true
+end
 
 local config = {}
 for k, v in pairs(DEFAULT_CONFIG) do
@@ -128,7 +180,7 @@ loader.Size = UDim2.new(0, 280, 0, 100)
 loader.Position = UDim2.new(0.5, -140, 0.5, -50)
 loader.BackgroundColor3 = COLORS.Main
 loader.BorderSizePixel = 0
-loader.Visible = true
+loader.Visible = false
 loader.Parent = gui
 addCorner(loader, 12)
 addStroke(loader, COLORS.Stroke, 1)
@@ -226,7 +278,7 @@ tabRow.Position = UDim2.new(0, 8, 0, 54)
 tabRow.BackgroundTransparency = 1
 tabRow.Parent = main
 
-local TABS = {"Skyboxes", "FFlags", "Settings", "Info"}
+local TABS = {"Skyboxes", "FFlags", "ScriptHub", "Settings", "Info"}
 local tabButtons = {}
 
 for i, name in ipairs(TABS) do
@@ -264,7 +316,6 @@ for _, name in ipairs(TABS) do
 	page.Visible = false
 	page.Parent = content
 	pages[name] = page
-
 end
 
 -- ─── Skyboxes Tab ─────────────────────────────────────────
@@ -272,12 +323,62 @@ do
 	local page = pages["Skyboxes"]
 	local Lighting = game:GetService("Lighting")
 
+	local function clearBlackDome()
+		local dome = workspace:FindFirstChild("PlexerBlackSky")
+		if dome then dome:Destroy() end
+	end
+
 	local function clearOldSky()
+		clearBlackDome()
 		for _, c in ipairs(Lighting:GetChildren()) do
 			if c:IsA("Sky") then
 				c:Destroy()
 			end
 		end
+	end
+
+	local function applyBlackSky()
+		clearOldSky()
+		local dome = Instance.new("Part")
+		dome.Name = "PlexerBlackSky"
+		dome.Shape = Enum.PartType.Ball
+		dome.Size = Vector3.new(4000, 4000, 4000)
+		dome.Anchored = true
+		dome.CanCollide = false
+		dome.CanQuery = false
+		dome.CanTouch = false
+		dome.CastShadow = false
+		dome.Material = Enum.Material.Neon
+		dome.Color = Color3.new(0, 0, 0)
+		dome.Transparency = 0
+		dome.Parent = workspace
+
+		local mesh = Instance.new("SpecialMesh")
+		mesh.MeshType = Enum.MeshType.Sphere
+		mesh.Scale = Vector3.new(-1, -1, -1)
+		mesh.Parent = dome
+
+		task.spawn(function()
+			while dome.Parent do
+				local cam = workspace.CurrentCamera
+				if cam then
+					dome.Position = cam.CFrame.Position
+				end
+				task.wait(0.1)
+			end
+		end)
+
+		local sky = Instance.new("Sky")
+		sky.CelestialBodiesShown = false
+		sky.StarCount = 0
+		sky.SkyboxBk = "rbxassetid://0"
+		sky.SkyboxDn = "rbxassetid://0"
+		sky.SkyboxFt = "rbxassetid://0"
+		sky.SkyboxLf = "rbxassetid://0"
+		sky.SkyboxRt = "rbxassetid://0"
+		sky.SkyboxUp = "rbxassetid://0"
+		sky.Parent = Lighting
+		return sky
 	end
 
 	local function applySky(faces, opts)
@@ -323,9 +424,6 @@ do
 		return lower:find("^https://") ~= nil
 	end
 
-	-- pure black texture used for Black Sky (all faces)
-	local BLACK_TEX = "rbxassetid://1509448"
-
 	local PRESETS = {
 		{
 			name = "Pink Sky",
@@ -338,18 +436,13 @@ do
 				Up = "rbxassetid://271042516",
 			},
 			opts = {celestial = false, stars = 0},
+			special = nil,
 		},
 		{
 			name = "Black Sky",
-			faces = {
-				Bk = BLACK_TEX,
-				Dn = BLACK_TEX,
-				Ft = BLACK_TEX,
-				Lf = BLACK_TEX,
-				Rt = BLACK_TEX,
-				Up = BLACK_TEX,
-			},
+			faces = nil,
 			opts = {celestial = false, stars = 0},
+			special = "black",
 		},
 		{
 			name = "Aurora Borealis",
@@ -362,6 +455,7 @@ do
 				Up = "rbxassetid://159454288",
 			},
 			opts = {celestial = true, stars = 3000},
+			special = nil,
 		},
 	}
 
@@ -413,7 +507,11 @@ do
 		addCorner(btn, 8)
 
 		btn.MouseButton1Click:Connect(function()
-			applySky(preset.faces, preset.opts)
+			if preset.special == "black" then
+				applyBlackSky()
+			else
+				applySky(preset.faces, preset.opts)
+			end
 			setStatus("Applied " .. preset.name, true)
 		end)
 	end
@@ -478,22 +576,15 @@ do
 	addCorner(resetBtn, 6)
 
 	local function resolveHttpToAsset(url)
-		-- download image then getcustomasset so Sky can use it
 		local req = (syn and syn.request) or http_request or request
-		if not req then
-			return nil, "no http request"
-		end
-		if not getcustomasset then
-			return nil, "no getcustomasset"
-		end
+		if not req then return nil, "no http request" end
+		if not getcustomasset then return nil, "no getcustomasset" end
 
 		local ok, res = pcall(function()
 			return req({
 				Url = url,
 				Method = "GET",
-				Headers = {
-					["User-Agent"] = "Mozilla/5.0",
-				},
+				Headers = {["User-Agent"] = "Mozilla/5.0"},
 			})
 		end)
 		if not ok or not res or not res.Body or #res.Body < 100 then
@@ -512,14 +603,10 @@ do
 		local wok = pcall(function()
 			writefile(path, res.Body)
 		end)
-		if not wok then
-			return nil, "write failed"
-		end
+		if not wok then return nil, "write failed" end
 
 		local aok, asset = pcall(getcustomasset, path)
-		if not aok or not asset then
-			return nil, "getcustomasset failed"
-		end
+		if not aok or not asset then return nil, "getcustomasset failed" end
 		return asset, nil
 	end
 
@@ -530,7 +617,6 @@ do
 			return
 		end
 
-		-- plain asset id / rbxassetid
 		if tonumber(url) then
 			url = "rbxassetid://" .. url
 		end
@@ -540,7 +626,6 @@ do
 			return
 		end
 
-		-- Discord / other CDN → download + getcustomasset
 		setStatus("Downloading image...", true)
 		task.spawn(function()
 			local asset, err = resolveHttpToAsset(url)
@@ -561,7 +646,7 @@ do
 	end)
 end
 
--- ─── FFlags Tab (Voidstrap-style editor) ──────────────────
+-- ─── FFlags Tab ───────────────────────────────────────────
 do
 	local page = pages["FFlags"]
 
@@ -569,25 +654,11 @@ do
 		local ok = pcall(function()
 			if setfflag then
 				setfflag(name, tostring(value))
-			elseif setfenv and getfenv then
-				-- fallback no-op
 			end
 		end)
 		return ok
 	end
 
-	local function tryGetFFlag(name)
-		local ok, val = pcall(function()
-			if getfflag then
-				return getfflag(name)
-			end
-			return nil
-		end)
-		if ok then return val end
-		return nil
-	end
-
-	-- preset flags (common / allowlist-style)
 	local PRESETS = {
 		{name = "DFIntTaskSchedulerTargetFps", value = "999", cat = "Performance"},
 		{name = "FFlagDisablePostFx", value = "True", cat = "Graphics"},
@@ -596,26 +667,13 @@ do
 		{name = "DFIntTextureQualityOverride", value = "1", cat = "Graphics"},
 		{name = "FFlagDebugGraphicsPreferD3D11", value = "True", cat = "Graphics"},
 		{name = "DFFlagDisableDPIScale", value = "True", cat = "UI"},
-		{name = "FFlagHandleAltEnterFullscreenManually", value = "True", cat = "UI"},
-		{name = "FIntFRMMaxGrassDistance", value = "0", cat = "Graphics"},
-		{name = "FIntFRMMinGrassDistance", value = "0", cat = "Graphics"},
-		{name = "DFIntDebugFRMQualityLevelOverride", value = "1", cat = "Graphics"},
-		{name = "FFlagDebugDisableTelemetryEphemeralCounter", value = "True", cat = "Telemetry"},
-		{name = "FFlagDebugDisableTelemetryEphemeralStat", value = "True", cat = "Telemetry"},
-		{name = "FFlagDebugDisableTelemetryEventIngest", value = "True", cat = "Telemetry"},
-		{name = "FFlagDebugDisableTelemetryPoint", value = "True", cat = "Telemetry"},
-		{name = "FFlagDebugDisableTelemetryV2Counter", value = "True", cat = "Telemetry"},
-		{name = "FFlagDebugDisableTelemetryV2Event", value = "True", cat = "Telemetry"},
-		{name = "FFlagDebugDisableTelemetryV2Stat", value = "True", cat = "Telemetry"},
 	}
 
-	-- active flags table (name -> value string)
 	local activeFlags = {}
 	for _, p in ipairs(PRESETS) do
 		activeFlags[p.name] = p.value
 	end
 
-	-- load saved fflags from config if present
 	if type(config.fflags) == "table" then
 		for k, v in pairs(config.fflags) do
 			activeFlags[k] = tostring(v)
@@ -627,7 +685,6 @@ do
 		saveConfig()
 	end
 
-	-- search bar
 	local searchBox = Instance.new("TextBox")
 	searchBox.Size = UDim2.new(1, -24, 0, 32)
 	searchBox.Position = UDim2.new(0, 12, 0, 10)
@@ -649,7 +706,6 @@ do
 	searchPad.PaddingLeft = UDim.new(0, 10)
 	searchPad.Parent = searchBox
 
-	-- add custom row
 	local addRow = Instance.new("Frame")
 	addRow.Size = UDim2.new(1, -24, 0, 32)
 	addRow.Position = UDim2.new(0, 12, 0, 48)
@@ -703,7 +759,6 @@ do
 	addBtn.Parent = addRow
 	addCorner(addBtn, 6)
 
-	-- scroll list
 	local listFrame = Instance.new("ScrollingFrame")
 	listFrame.Size = UDim2.new(1, -24, 1, -168)
 	listFrame.Position = UDim2.new(0, 12, 0, 88)
@@ -720,7 +775,7 @@ do
 	listLayout.Padding = UDim.new(0, 4)
 	listLayout.Parent = listFrame
 
-	local flagRows = {} -- name -> row frame
+	local flagRows = {}
 
 	local function makeFlagRow(flagName, flagValue)
 		if flagRows[flagName] then
@@ -821,13 +876,12 @@ do
 		refreshList(searchBox.Text)
 	end)
 
-	-- import JSON
 	local jsonBox = Instance.new("TextBox")
 	jsonBox.Size = UDim2.new(1, -24, 0, 28)
 	jsonBox.Position = UDim2.new(0, 12, 1, -78)
 	jsonBox.BackgroundColor3 = COLORS.Tab
 	jsonBox.BorderSizePixel = 0
-	jsonBox.PlaceholderText = 'Import JSON  {"DFIntTaskSchedulerTargetFps":"999"}'
+	jsonBox.PlaceholderText = 'Import JSON'
 	jsonBox.PlaceholderColor3 = COLORS.TextDim
 	jsonBox.Text = ""
 	jsonBox.TextColor3 = COLORS.Text
@@ -842,7 +896,6 @@ do
 	jsonPad.PaddingLeft = UDim.new(0, 8)
 	jsonPad.Parent = jsonBox
 
-	-- apply bar
 	local applyBar = Instance.new("Frame")
 	applyBar.Size = UDim2.new(1, -24, 0, 30)
 	applyBar.Position = UDim2.new(0, 12, 1, -42)
@@ -885,65 +938,154 @@ do
 	statusLbl.TextXAlignment = Enum.TextXAlignment.Left
 	statusLbl.Parent = applyBar
 
-	importBtn.MouseButton1Click:Connect(function()
-		local raw = jsonBox.Text:gsub("^%s+", ""):gsub("%s+$", "")
-		if raw == "" then
-			statusLbl.Text = "Paste JSON first"
-			statusLbl.TextColor3 = COLORS.Danger
-			return
-		end
-		local ok, decoded = pcall(function()
-			return HttpService:JSONDecode(raw)
-		end)
-		if not ok or type(decoded) ~= "table" then
-			statusLbl.Text = "Invalid JSON"
-			statusLbl.TextColor3 = COLORS.Danger
-			return
-		end
-		local count = 0
-		for k, v in pairs(decoded) do
-			if type(k) == "string" then
-				activeFlags[k] = tostring(v)
-				makeFlagRow(k, tostring(v))
-				count += 1
-			end
-		end
-		persistFlags()
-		refreshList(searchBox.Text)
-		jsonBox.Text = ""
-		statusLbl.Text = "Imported " .. count
-		statusLbl.TextColor3 = Color3.fromRGB(80, 200, 120)
-	end)
-
 	applyBtn.MouseButton1Click:Connect(function()
-		local applied, failed = 0, 0
+		local applied = 0
 		for name, value in pairs(activeFlags) do
 			if trySetFFlag(name, value) then
 				applied += 1
-			else
-				failed += 1
 			end
 		end
 		persistFlags()
-		if failed > 0 and applied == 0 then
-			statusLbl.Text = "setfflag not available"
-			statusLbl.TextColor3 = COLORS.Danger
-		else
-			statusLbl.Text = "Applied " .. applied .. (failed > 0 and (" (" .. failed .. " failed)") or "")
-			statusLbl.TextColor3 = Color3.fromRGB(80, 200, 120)
-		end
+		statusLbl.Text = "Applied " .. applied
+		statusLbl.TextColor3 = Color3.fromRGB(80, 200, 120)
 		task.delay(2.5, function()
-			if statusLbl and statusLbl.Parent then
-				statusLbl.Text = ""
-			end
+			if statusLbl and statusLbl.Parent then statusLbl.Text = "" end
 		end)
 	end)
+end
+
+-- ─── ScriptHub Tab ────────────────────────────────────────
+do
+	local page = pages["ScriptHub"]
+	local function httpGet(url)
+		local ok, body = pcall(function() return game:HttpGet(url) end)
+		if ok and body then return body end
+		local req = (syn and syn.request) or http_request or request
+		if req then
+			local rok, res = pcall(function() return req({Url = url, Method = "GET"}) end)
+			if rok and res and res.Body then return res.Body end
+		end
+		return nil
+	end
+
+	local searchWrap = Instance.new("Frame")
+	searchWrap.Size = UDim2.new(1, -24, 0, 40)
+	searchWrap.Position = UDim2.new(0, 12, 0, 10)
+	searchWrap.BackgroundColor3 = COLORS.Tab
+	searchWrap.BorderSizePixel = 0
+	searchWrap.Parent = page
+	addCorner(searchWrap, 10)
+	addStroke(searchWrap, COLORS.Stroke, 1)
+
+	local searchBox = Instance.new("TextBox")
+	searchBox.Size = UDim2.new(1, -100, 1, 0)
+	searchBox.Position = UDim2.new(0, 34, 0, 0)
+	searchBox.BackgroundTransparency = 1
+	searchBox.PlaceholderText = "Search scripts..."
+	searchBox.PlaceholderColor3 = COLORS.TextDim
+	searchBox.Text = ""
+	searchBox.TextColor3 = COLORS.Text
+	searchBox.Font = Enum.Font.Gotham
+	searchBox.TextSize = 14
+	searchBox.Parent = searchWrap
+
+	local searchBtn = Instance.new("TextButton")
+	searchBtn.Size = UDim2.new(0, 60, 0, 28)
+	searchBtn.Position = UDim2.new(1, -66, 0.5, -14)
+	searchBtn.BackgroundColor3 = COLORS.Accent
+	searchBtn.BorderSizePixel = 0
+	searchBtn.Text = "Go"
+	searchBtn.TextColor3 = Color3.new(1, 1, 1)
+	searchBtn.Font = Enum.Font.GothamBold
+	searchBtn.Parent = searchWrap
+	addCorner(searchBtn, 6)
+
+	local listFrame = Instance.new("ScrollingFrame")
+	listFrame.Size = UDim2.new(1, -24, 1, -96)
+	listFrame.Position = UDim2.new(0, 12, 0, 58)
+	listFrame.BackgroundTransparency = 1
+	listFrame.BorderSizePixel = 0
+	listFrame.ScrollBarThickness = 4
+	listFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	listFrame.Parent = page
+
+	local listLayout = Instance.new("UIListLayout")
+	listLayout.Padding = UDim.new(0, 4)
+	listLayout.Parent = listFrame
+
+	local statusLbl = Instance.new("TextLabel")
+	statusLbl.Size = UDim2.new(1, -24, 0, 18)
+	statusLbl.Position = UDim2.new(0, 12, 1, -28)
+	statusLbl.BackgroundTransparency = 1
+	statusLbl.Text = "Scripts from robloxscripts.com"
+	statusLbl.TextColor3 = COLORS.TextDim
+	statusLbl.Font = Enum.Font.Gotham
+	statusLbl.TextSize = 11
+	statusLbl.Parent = page
+
+	local function fetchScripts(query)
+		for _, c in ipairs(listFrame:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
+		task.spawn(function()
+			local q = query and query ~= "" and ("&q=" .. HttpService:UrlEncode(query)) or ""
+			local url = "https://robloxscripts.com/api/v1/scripts?limit=20" .. q
+			local body = httpGet(url)
+			if not body then return end
+			local ok, data = pcall(function() return HttpService:JSONDecode(body) end)
+			if not ok or not data then return end
+			local list = data.data or data.scripts or {}
+			for i, item in ipairs(list) do
+				local row = Instance.new("Frame")
+				row.Size = UDim2.new(1, 0, 0, 52)
+				row.BackgroundColor3 = COLORS.Tab
+				row.Parent = listFrame
+				addCorner(row, 6)
+
+				local title = Instance.new("TextLabel")
+				title.Size = UDim2.new(1, -90, 0, 20)
+				title.Position = UDim2.new(0, 10, 0, 6)
+				title.BackgroundTransparency = 1
+				title.Text = item.title or "Untitled"
+				title.TextColor3 = COLORS.Text
+				title.Font = Enum.Font.GothamMedium
+				title.TextSize = 13
+				title.Parent = row
+
+				local runBtn = Instance.new("TextButton")
+				runBtn.Size = UDim2.new(0, 70, 0, 28)
+				runBtn.Position = UDim2.new(1, -80, 0.5, -14)
+				runBtn.BackgroundColor3 = COLORS.Accent
+				runBtn.BorderSizePixel = 0
+				runBtn.Text = "Run"
+				runBtn.TextColor3 = Color3.new(1, 1, 1)
+				runBtn.Font = Enum.Font.GothamBold
+				runBtn.Parent = row
+				addCorner(runBtn, 6)
+
+				runBtn.MouseButton1Click:Connect(function()
+					task.spawn(function()
+						if item.script then
+							local fn = loadstring(item.script)
+							if fn then fn() end
+						elseif item.rawScriptUrl then
+							local src = httpGet(item.rawScriptUrl)
+							if src then
+								local fn = loadstring(src)
+								if fn then fn() end
+							end
+						end
+					end)
+				end)
+			end
+		end)
+	end
+
+	searchBtn.MouseButton1Click:Connect(function() fetchScripts(searchBox.Text) end)
+	task.defer(function() fetchScripts("") end)
 end
 
 -- ─── Settings Tab ─────────────────────────────────────────
 do
 	local page = pages["Settings"]
-
 	local function makeRow(y, labelText)
 		local row = Instance.new("Frame")
 		row.Size = UDim2.new(1, -24, 0, 40)
@@ -961,13 +1103,10 @@ do
 		lbl.TextColor3 = COLORS.Text
 		lbl.Font = Enum.Font.GothamMedium
 		lbl.TextSize = 14
-		lbl.TextXAlignment = Enum.TextXAlignment.Left
 		lbl.Parent = row
-
 		return row
 	end
 
-	-- Close keybind
 	local keyRow = makeRow(14, "Close keybind")
 	local keyBtn = Instance.new("TextButton")
 	keyBtn.Size = UDim2.new(0, 90, 0, 28)
@@ -977,228 +1116,44 @@ do
 	keyBtn.Text = config.closeKey
 	keyBtn.TextColor3 = COLORS.Accent
 	keyBtn.Font = Enum.Font.GothamBold
-	keyBtn.TextSize = 14
-	keyBtn.AutoButtonColor = false
 	keyBtn.Parent = keyRow
 	addCorner(keyBtn, 6)
-	addStroke(keyBtn, COLORS.Stroke, 1)
 
-	local listening = false
 	keyBtn.MouseButton1Click:Connect(function()
-		if listening then return end
-		listening = true
-		keyBtn.Text = "..."
-		keyBtn.TextColor3 = COLORS.TextDim
-
 		local conn
 		conn = UserInputService.InputBegan:Connect(function(input)
-			if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-			local name = input.KeyCode.Name
-			if name == "Unknown" or name == "L" then return end -- L is kill
-			closeKeyCode = input.KeyCode
-			config.closeKey = name
-			keyBtn.Text = name
-			keyBtn.TextColor3 = COLORS.Accent
-			title.Text = "Plexer  [" .. name .. "] close  [L] kill"
-			saveConfig()
-			listening = false
-			conn:Disconnect()
+			if input.UserInputType == Enum.UserInputType.Keyboard then
+				local name = input.KeyCode.Name
+				if name ~= "Unknown" and name ~= "L" then
+					closeKeyCode = input.KeyCode
+					config.closeKey = name
+					keyBtn.Text = name
+					saveConfig()
+					conn:Disconnect()
+				end
+			end
 		end)
 	end)
 
-	-- UI size slider
-	local sizeLabel = Instance.new("TextLabel")
-	sizeLabel.Size = UDim2.new(1, -24, 0, 18)
-	sizeLabel.Position = UDim2.new(0, 12, 0, 60)
-	sizeLabel.BackgroundTransparency = 1
-	sizeLabel.Text = "UI size  " .. UI_W .. "x" .. UI_H
-	sizeLabel.TextColor3 = COLORS.Text
-	sizeLabel.Font = Enum.Font.GothamMedium
-	sizeLabel.TextSize = 14
-	sizeLabel.TextXAlignment = Enum.TextXAlignment.Left
-	sizeLabel.Parent = page
+	local saveRow = makeRow(64, "Reset Key / HWID Lock")
+	local resetKeyBtn = Instance.new("TextButton")
+	resetKeyBtn.Size = UDim2.new(0, 90, 0, 28)
+	resetKeyBtn.Position = UDim2.new(1, -102, 0.5, -14)
+	resetKeyBtn.BackgroundColor3 = COLORS.Danger
+	resetKeyBtn.BorderSizePixel = 0
+	resetKeyBtn.Text = "Reset Key"
+	resetKeyBtn.TextColor3 = Color3.new(1, 1, 1)
+	resetKeyBtn.Font = Enum.Font.GothamBold
+	resetKeyBtn.Parent = saveRow
+	addCorner(resetKeyBtn, 6)
 
-	local sliderBg = Instance.new("Frame")
-	sliderBg.Size = UDim2.new(1, -24, 0, 8)
-	sliderBg.Position = UDim2.new(0, 12, 0, 86)
-	sliderBg.BackgroundColor3 = COLORS.Tab
-	sliderBg.BorderSizePixel = 0
-	sliderBg.Parent = page
-	addCorner(sliderBg, 4)
-
-	local MIN_W, MAX_W = 400, 1000
-	local function widthToAlpha(w)
-		return (w - MIN_W) / (MAX_W - MIN_W)
-	end
-	local function alphaToWidth(a)
-		return math.floor(MIN_W + a * (MAX_W - MIN_W) + 0.5)
-	end
-
-	local sliderFill = Instance.new("Frame")
-	sliderFill.Size = UDim2.new(widthToAlpha(UI_W), 0, 1, 0)
-	sliderFill.BackgroundColor3 = COLORS.Accent
-	sliderFill.BorderSizePixel = 0
-	sliderFill.Parent = sliderBg
-	addCorner(sliderFill, 4)
-
-	local sliderKnob = Instance.new("Frame")
-	sliderKnob.Size = UDim2.new(0, 16, 0, 16)
-	sliderKnob.Position = UDim2.new(widthToAlpha(UI_W), -8, 0.5, -8)
-	sliderKnob.BackgroundColor3 = COLORS.Text
-	sliderKnob.BorderSizePixel = 0
-	sliderKnob.Parent = sliderBg
-	addCorner(sliderKnob, 8)
-
-	local sliding = false
-	local function setSizeFromAlpha(a)
-		a = math.clamp(a, 0, 1)
-		local w = alphaToWidth(a)
-		local h = math.floor(w * 0.72 + 0.5)
-		h = math.clamp(h, 280, 700)
-		UI_W, UI_H = w, h
-		config.uiWidth, config.uiHeight = w, h
-		sliderFill.Size = UDim2.new(a, 0, 1, 0)
-		sliderKnob.Position = UDim2.new(a, -8, 0.5, -8)
-		sizeLabel.Text = "UI size  " .. w .. "x" .. h
-		main.Size = UDim2.new(0, w, 0, h)
-		main.Position = UDim2.new(0.5, -math.floor(w / 2), 0.5, -math.floor(h / 2))
-		savedPos = main.Position
-	end
-
-	sliderBg.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			sliding = true
-			local rel = (input.Position.X - sliderBg.AbsolutePosition.X) / sliderBg.AbsoluteSize.X
-			setSizeFromAlpha(rel)
-		end
-	end)
-	UserInputService.InputChanged:Connect(function(input)
-		if not sliding then return end
-		if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
-		local rel = (input.Position.X - sliderBg.AbsolutePosition.X) / math.max(sliderBg.AbsoluteSize.X, 1)
-		setSizeFromAlpha(rel)
-	end)
-	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			if sliding then
-				sliding = false
-				saveConfig()
-			end
-		end
-	end)
-
-	-- Accent color RGB
-	local colorTitle = Instance.new("TextLabel")
-	colorTitle.Size = UDim2.new(1, -24, 0, 18)
-	colorTitle.Position = UDim2.new(0, 12, 0, 110)
-	colorTitle.BackgroundTransparency = 1
-	colorTitle.Text = "Accent color (RGB)"
-	colorTitle.TextColor3 = COLORS.Text
-	colorTitle.Font = Enum.Font.GothamMedium
-	colorTitle.TextSize = 14
-	colorTitle.TextXAlignment = Enum.TextXAlignment.Left
-	colorTitle.Parent = page
-
-	local function makeRGBBox(x, placeholder, defaultVal)
-		local box = Instance.new("TextBox")
-		box.Size = UDim2.new(0, 52, 0, 28)
-		box.Position = UDim2.new(0, x, 0, 134)
-		box.BackgroundColor3 = COLORS.Tab
-		box.BorderSizePixel = 0
-		box.Text = tostring(defaultVal)
-		box.PlaceholderText = placeholder
-		box.TextColor3 = COLORS.Text
-		box.Font = Enum.Font.Gotham
-		box.TextSize = 13
-		box.ClearTextOnFocus = false
-		box.Parent = page
-		addCorner(box, 6)
-		return box
-	end
-
-	local acc = config.colors and config.colors.Accent or {100, 140, 255}
-	local rBox = makeRGBBox(12, "R", acc[1] or 100)
-	local gBox = makeRGBBox(70, "G", acc[2] or 140)
-	local bBox = makeRGBBox(128, "B", acc[3] or 255)
-
-	local preview = Instance.new("Frame")
-	preview.Size = UDim2.new(0, 28, 0, 28)
-	preview.Position = UDim2.new(0, 188, 0, 134)
-	preview.BackgroundColor3 = COLORS.Accent
-	preview.BorderSizePixel = 0
-	preview.Parent = page
-	addCorner(preview, 6)
-
-	local applyColorBtn = Instance.new("TextButton")
-	applyColorBtn.Size = UDim2.new(0, 70, 0, 28)
-	applyColorBtn.Position = UDim2.new(0, 224, 0, 134)
-	applyColorBtn.BackgroundColor3 = COLORS.Content
-	applyColorBtn.BorderSizePixel = 0
-	applyColorBtn.Text = "Apply"
-	applyColorBtn.TextColor3 = COLORS.Accent
-	applyColorBtn.Font = Enum.Font.GothamBold
-	applyColorBtn.TextSize = 13
-	applyColorBtn.AutoButtonColor = true
-	applyColorBtn.Parent = page
-	addCorner(applyColorBtn, 6)
-
-	applyColorBtn.MouseButton1Click:Connect(function()
-		local r = math.clamp(tonumber(rBox.Text) or 100, 0, 255)
-		local g = math.clamp(tonumber(gBox.Text) or 140, 0, 255)
-		local b = math.clamp(tonumber(bBox.Text) or 255, 0, 255)
-		local c = Color3.fromRGB(r, g, b)
-		COLORS.Accent = c
-		if not config.colors then config.colors = {} end
-		config.colors.Accent = {r, g, b}
-		preview.BackgroundColor3 = c
-		applyColorBtn.TextColor3 = c
-		sliderFill.BackgroundColor3 = c
-		title.TextColor3 = COLORS.Text
+	resetKeyBtn.MouseButton1Click:Connect(function()
+		config.savedKey = ""
+		config.linkedUserId = 0
 		saveConfig()
-		applyColorBtn.Text = "OK"
-		task.delay(1, function()
-			if applyColorBtn and applyColorBtn.Parent then
-				applyColorBtn.Text = "Apply"
-			end
-		end)
-	end)
-
-	-- Save config
-	local saveRow = makeRow(178, "Save config")
-	local saveBtn = Instance.new("TextButton")
-	saveBtn.Size = UDim2.new(0, 90, 0, 28)
-	saveBtn.Position = UDim2.new(1, -102, 0.5, -14)
-	saveBtn.BackgroundColor3 = COLORS.Content
-	saveBtn.BorderSizePixel = 0
-	saveBtn.Text = "Save"
-	saveBtn.TextColor3 = COLORS.Accent
-	saveBtn.Font = Enum.Font.GothamBold
-	saveBtn.TextSize = 14
-	saveBtn.AutoButtonColor = false
-	saveBtn.Parent = saveRow
-	addCorner(saveBtn, 6)
-	addStroke(saveBtn, COLORS.Stroke, 1)
-
-	local saveHint = Instance.new("TextLabel")
-	saveHint.Size = UDim2.new(1, -24, 0, 18)
-	saveHint.Position = UDim2.new(0, 12, 0, 228)
-	saveHint.BackgroundTransparency = 1
-	saveHint.Text = "Auto-loads for your userId on inject"
-	saveHint.TextColor3 = COLORS.TextDim
-	saveHint.Font = Enum.Font.Gotham
-	saveHint.TextSize = 12
-	saveHint.TextXAlignment = Enum.TextXAlignment.Left
-	saveHint.Parent = page
-
-	saveBtn.MouseButton1Click:Connect(function()
-		local ok = saveConfig()
-		saveBtn.Text = ok and "Saved!" or "Failed"
-		saveBtn.TextColor3 = ok and Color3.fromRGB(80, 200, 120) or COLORS.Danger
-		task.delay(1.2, function()
-			if saveBtn and saveBtn.Parent then
-				saveBtn.Text = "Save"
-				saveBtn.TextColor3 = COLORS.Accent
-			end
+		resetKeyBtn.Text = "Cleared!"
+		task.delay(1.5, function()
+			game:GetService("TeleportService"):Teleport(game.PlaceId, player)
 		end)
 	end)
 end
@@ -1206,321 +1161,178 @@ end
 -- ─── Info Tab Content ─────────────────────────────────────
 do
 	local infoPage = pages["Info"]
-	local DEV_USERNAME = "xxxvcxxxv"
-
-	local avatarFrame = Instance.new("Frame")
-	avatarFrame.Size = UDim2.new(0, 80, 0, 80)
-	avatarFrame.Position = UDim2.new(0.5, -40, 0, 24)
-	avatarFrame.BackgroundColor3 = COLORS.Tab
-	avatarFrame.BorderSizePixel = 0
-	avatarFrame.Parent = infoPage
-	addCorner(avatarFrame, 40)
-	addStroke(avatarFrame, COLORS.Stroke, 1)
-
-	local avatarImg = Instance.new("ImageLabel")
-	avatarImg.Size = UDim2.new(1, 0, 1, 0)
-	avatarImg.BackgroundTransparency = 1
-	avatarImg.Image = ""
-	avatarImg.Parent = avatarFrame
-	addCorner(avatarImg, 40)
-
-	local displayLbl = Instance.new("TextLabel")
-	displayLbl.Size = UDim2.new(1, -20, 0, 24)
-	displayLbl.Position = UDim2.new(0, 10, 0, 116)
-	displayLbl.BackgroundTransparency = 1
-	displayLbl.Text = "..."
-	displayLbl.TextColor3 = COLORS.Text
-	displayLbl.Font = Enum.Font.GothamBold
-	displayLbl.TextSize = 18
-	displayLbl.TextXAlignment = Enum.TextXAlignment.Center
-	displayLbl.Parent = infoPage
-
-	local userLbl = Instance.new("TextLabel")
-	userLbl.Size = UDim2.new(1, -20, 0, 20)
-	userLbl.Position = UDim2.new(0, 10, 0, 140)
-	userLbl.BackgroundTransparency = 1
-	userLbl.Text = "@" .. DEV_USERNAME
-	userLbl.TextColor3 = COLORS.TextDim
-	userLbl.Font = Enum.Font.Gotham
-	userLbl.TextSize = 14
-	userLbl.TextXAlignment = Enum.TextXAlignment.Center
-	userLbl.Parent = infoPage
-
 	local creditLbl = Instance.new("TextLabel")
 	creditLbl.Size = UDim2.new(1, -20, 0, 22)
 	creditLbl.Position = UDim2.new(0, 10, 0, 180)
 	creditLbl.BackgroundTransparency = 1
-	creditLbl.Text = "Plexer — made by Complex"
+	creditLbl.Text = "Plexer — Dynamic GitHub Key System"
 	creditLbl.TextColor3 = COLORS.Accent
 	creditLbl.Font = Enum.Font.GothamMedium
 	creditLbl.TextSize = 14
 	creditLbl.TextXAlignment = Enum.TextXAlignment.Center
 	creditLbl.Parent = infoPage
-
-	local verLbl = Instance.new("TextLabel")
-	verLbl.Size = UDim2.new(1, -20, 0, 20)
-	verLbl.Position = UDim2.new(0, 10, 0, 210)
-	verLbl.BackgroundTransparency = 1
-	verLbl.Text = "Version 1.0.0"
-	verLbl.TextColor3 = COLORS.TextDim
-	verLbl.Font = Enum.Font.Gotham
-	verLbl.TextSize = 13
-	verLbl.TextXAlignment = Enum.TextXAlignment.Center
-	verLbl.Parent = infoPage
-
-	task.spawn(function()
-		local okId, userId = pcall(function()
-			return Players:GetUserIdFromNameAsync(DEV_USERNAME)
-		end)
-		if not okId or not userId then
-			displayLbl.Text = DEV_USERNAME
-			return
-		end
-
-		local okInfo, infos = pcall(function()
-			return game:GetService("UserService"):GetUserInfosByUserIdsAsync({userId})
-		end)
-		if okInfo and infos and infos[1] and infos[1].DisplayName then
-			displayLbl.Text = infos[1].DisplayName
-		else
-			displayLbl.Text = DEV_USERNAME
-		end
-
-		local okThumb, url = pcall(function()
-			return Players:GetUserThumbnailAsync(
-				userId,
-				Enum.ThumbnailType.HeadShot,
-				Enum.ThumbnailSize.Size150x150
-			)
-		end)
-		if okThumb and url then
-			avatarImg.Image = url
-		end
-	end)
 end
 
--- ─── Tab Logic ────────────────────────────────────────────
-local activeTab = nil
-
-local function setTab(name)
-	if name == activeTab then return end
-	if activeTab then
-		tabButtons[activeTab].BackgroundColor3 = COLORS.Tab
-		tabButtons[activeTab].TextColor3 = COLORS.TextDim
-		pages[activeTab].Visible = false
-	end
-	activeTab = name
-	tabButtons[name].BackgroundColor3 = COLORS.TabActive
-	tabButtons[name].TextColor3 = COLORS.Text
-	pages[name].Visible = true
-end
-
-for _, btn in pairs(tabButtons) do
-	btn.MouseButton1Click:Connect(function()
-		setTab(btn.Name:sub(5))
-	end)
-end
-
-setTab("Skyboxes")
-
--- ─── Notification ─────────────────────────────────────────
-local notif = Instance.new("Frame")
-notif.Size = UDim2.new(0, 280, 0, 48)
-notif.Position = UDim2.new(0.5, -140, 1, -20)
-notif.BackgroundColor3 = COLORS.Main
-notif.BorderSizePixel = 0
-notif.Visible = false
-notif.Parent = gui
-addCorner(notif, 10)
-addStroke(notif, COLORS.Stroke, 1)
-
-local nText = Instance.new("TextLabel")
-nText.Size = UDim2.new(1, 0, 0, 24)
-nText.Position = UDim2.new(0, 0, 0, 6)
-nText.BackgroundTransparency = 1
-nText.Text = "Script closed"
-nText.TextColor3 = COLORS.Text
-nText.Font = Enum.Font.GothamMedium
-nText.TextSize = 14
-nText.TextXAlignment = Enum.TextXAlignment.Center
-nText.Parent = notif
-
-local nKey = Instance.new("TextLabel")
-nKey.Size = UDim2.new(1, 0, 0, 20)
-nKey.Position = UDim2.new(0, 0, 0, 28)
-nKey.BackgroundTransparency = 1
-nKey.Text = "Press [" .. config.closeKey .. "] to open"
-nKey.TextColor3 = COLORS.Accent
-nKey.Font = Enum.Font.GothamBold
-nKey.TextSize = 13
-nKey.TextXAlignment = Enum.TextXAlignment.Center
-nKey.Parent = notif
-
--- ─── Open / Close ─────────────────────────────────────────
+-- ─── Open / Close / Input ─────────────────────────────────
 local isOpen = false
 local destroyed = false
 local loading = true
 local lastToggle = 0
 local savedPos = main.Position
 local closeToken = 0
-local inputConn, renderConn
+local inputConn
 
 local function hideNotif()
 	if not notif.Visible then return end
-	notif:TweenPosition(UDim2.new(0.5, -140, 1, -20), Enum.EasingDirection.Out, Enum.EasingStyle.Quart, 0.15, true, function()
-		notif.Visible = false
-	end)
+	notif.Visible = false
 end
 
 local function openMenu()
 	if isOpen or destroyed then return end
 	isOpen = true
-	closeToken += 1
-
-	hideNotif()
-
 	main.Position = savedPos
-	main.Size = UDim2.new(0, 0, 0, 0)
+	main.Size = UDim2.new(0, UI_W, 0, UI_H)
 	main.Visible = true
-	main:TweenSize(UDim2.new(0, UI_W, 0, UI_H), Enum.EasingDirection.Out, Enum.EasingStyle.Quart, 0.25, true)
 end
 
 local function closeMenu()
 	if not isOpen or destroyed then return end
 	isOpen = false
 	savedPos = main.Position
-	closeToken += 1
-	local token = closeToken
-
-	nKey.Text = "Press [" .. config.closeKey .. "] to open"
-
-	main:TweenSize(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quart, 0.2, true)
-
-	task.delay(0.2, function()
-		if destroyed or token ~= closeToken then return end
-		main.Visible = false
-		notif.Visible = true
-		notif.Position = UDim2.new(0.5, -140, 1, -20)
-		notif:TweenPosition(UDim2.new(0.5, -140, 1, -60), Enum.EasingDirection.Out, Enum.EasingStyle.Quart, 0.3, true)
-
-		task.delay(2.5, function()
-			if destroyed or token ~= closeToken then return end
-			if not notif.Visible then return end
-			notif:TweenPosition(UDim2.new(0.5, -140, 1, -20), Enum.EasingDirection.Out, Enum.EasingStyle.Quart, 0.25, true, function()
-				if token == closeToken then
-					notif.Visible = false
-				end
-			end)
-		end)
-	end)
+	main.Visible = false
 end
 
 local function killScript()
 	if destroyed then return end
 	destroyed = true
-	closeToken += 1
-
 	if inputConn then inputConn:Disconnect() end
-	if renderConn then renderConn:Disconnect() end
-
 	gui:Destroy()
 end
 
--- ─── Key Handling ─────────────────────────────────────────
 inputConn = UserInputService.InputBegan:Connect(function(input)
 	if destroyed or loading then return end
 	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-
 	if input.KeyCode == closeKeyCode then
-		local now = tick()
-		if now - lastToggle < 0.25 then return end
-		lastToggle = now
-		if isOpen then
-			closeMenu()
-		else
-			openMenu()
-		end
+		if isOpen then closeMenu() else openMenu() end
 	elseif input.KeyCode == Enum.KeyCode.L then
 		killScript()
 	end
 end)
 
-closeBtn.MouseButton1Click:Connect(function()
-	closeMenu()
-end)
+closeBtn.MouseButton1Click:Connect(closeMenu)
 
--- ─── Draggable ────────────────────────────────────────────
-local dragging = false
-local dragStart, startPos
+-- ─── Key System + Startup with Auto-Load Linked UserID ────
+local function startLoader()
+	loader.Visible = true
+	loader.Size = UDim2.new(0, 280, 0, 100)
+	task.spawn(function()
+		loaderStatus.Text = "Authenticating Key..."
+		task.wait(0.4)
+		loaderStatus.Text = "Ready"
+		loaderBar:TweenSize(UDim2.new(1, 0, 1, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quart, 0.3, true)
+		task.wait(0.3)
+		loader.Visible = false
+		loader:Destroy()
+		loading = false
+		openMenu()
+	end)
+end
 
-titleBar.InputBegan:Connect(function(input)
-	if input.UserInputType ~= Enum.UserInputType.MouseButton1
-		and input.UserInputType ~= Enum.UserInputType.Touch then
-		return
+-- Checks if saved key is valid AND locked to this user's ID
+local function hasValidStoredSession()
+	if config.savedKey ~= "" and config.linkedUserId == player.UserId then
+		return isKeyValid(config.savedKey)
 	end
-	local pos = input.Position
-	local abs = closeBtn.AbsolutePosition
-	local size = closeBtn.AbsoluteSize
-	if pos.X >= abs.X and pos.X <= abs.X + size.X
-		and pos.Y >= abs.Y and pos.Y <= abs.Y + size.Y then
-		return
+	return false
+end
+
+if hasValidStoredSession() then
+	startLoader()
+else
+	local keyFrame = Instance.new("Frame")
+	keyFrame.Name = "KeySystem"
+	keyFrame.Size = UDim2.new(0, 320, 0, 180)
+	keyFrame.Position = UDim2.new(0.5, -160, 0.5, -90)
+	keyFrame.BackgroundColor3 = COLORS.Main
+	keyFrame.BorderSizePixel = 0
+	keyFrame.Parent = gui
+	addCorner(keyFrame, 12)
+	addStroke(keyFrame, COLORS.Stroke, 1)
+
+	local keyTitle = Instance.new("TextLabel")
+	keyTitle.Size = UDim2.new(1, 0, 0, 28)
+	keyTitle.Position = UDim2.new(0, 0, 0, 16)
+	keyTitle.BackgroundTransparency = 1
+	keyTitle.Text = "Plexer Key System"
+	keyTitle.TextColor3 = COLORS.Text
+	keyTitle.Font = Enum.Font.GothamBold
+	keyTitle.TextSize = 16
+	keyTitle.TextXAlignment = Enum.TextXAlignment.Center
+	keyTitle.Parent = keyFrame
+
+	local keySub = Instance.new("TextLabel")
+	keySub.Size = UDim2.new(1, -24, 0, 18)
+	keySub.Position = UDim2.new(0, 12, 0, 46)
+	keySub.BackgroundTransparency = 1
+	keySub.Text = "Enter your Base64 key to auto-save"
+	keySub.TextColor3 = COLORS.TextDim
+	keySub.Font = Enum.Font.Gotham
+	keySub.TextSize = 12
+	keySub.Parent = keyFrame
+
+	local keyBox = Instance.new("TextBox")
+	keyBox.Size = UDim2.new(1, -24, 0, 34)
+	keyBox.Position = UDim2.new(0, 12, 0, 72)
+	keyBox.BackgroundColor3 = COLORS.Tab
+	keyBox.BorderSizePixel = 0
+	keyBox.PlaceholderText = "Paste long Base64 key..."
+	keyBox.PlaceholderColor3 = COLORS.TextDim
+	keyBox.Text = ""
+	keyBox.TextColor3 = COLORS.Text
+	keyBox.Font = Enum.Font.Gotham
+	keyBox.TextSize = 12
+	keyBox.ClearTextOnFocus = false
+	keyBox.Parent = keyFrame
+	addCorner(keyBox, 8)
+
+	local keyErr = Instance.new("TextLabel")
+	keyErr.Size = UDim2.new(1, -24, 0, 16)
+	keyErr.Position = UDim2.new(0, 12, 0, 112)
+	keyErr.BackgroundTransparency = 1
+	keyErr.Text = ""
+	keyErr.TextColor3 = COLORS.Danger
+	keyErr.Font = Enum.Font.Gotham
+	keyErr.TextSize = 11
+	keyErr.Parent = keyFrame
+
+	local keyBtn = Instance.new("TextButton")
+	keyBtn.Size = UDim2.new(1, -24, 0, 34)
+	keyBtn.Position = UDim2.new(0, 12, 0, 132)
+	keyBtn.BackgroundColor3 = COLORS.Accent
+	keyBtn.BorderSizePixel = 0
+	keyBtn.Text = "Unlock & Link Account"
+	keyBtn.TextColor3 = Color3.new(1, 1, 1)
+	keyBtn.Font = Enum.Font.GothamBold
+	keyBtn.TextSize = 14
+	keyBtn.AutoButtonColor = true
+	keyBtn.Parent = keyFrame
+	addCorner(keyBtn, 8)
+
+	local function tryUnlock()
+		local k = keyBox.Text
+		if isKeyValid(k) then
+			config.savedKey = normalizeKey(k)
+			config.linkedUserId = player.UserId -- Locks key session to user ID
+			saveConfig()
+			keyFrame:Destroy()
+			startLoader()
+		else
+			keyErr.Text = "Invalid or expired key!"
+		end
 	end
-	dragging = true
-	dragStart = input.Position
-	startPos = main.Position
-end)
 
-titleBar.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1
-		or input.UserInputType == Enum.UserInputType.Touch then
-		dragging = false
-	end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-	if not dragging then return end
-	if input.UserInputType ~= Enum.UserInputType.MouseMovement
-		and input.UserInputType ~= Enum.UserInputType.Touch then
-		return
-	end
-	local d = input.Position - dragStart
-	main.Position = UDim2.new(
-		startPos.X.Scale, startPos.X.Offset + d.X,
-		startPos.Y.Scale, startPos.Y.Offset + d.Y
-	)
-end)
-
--- ─── Startup Loader ───────────────────────────────────────
-task.spawn(function()
-	local steps = {
-		{text = "Initializing", progress = 0.15},
-		{text = "Loading content", progress = 0.4},
-		{text = "Auto-loading settings", progress = 0.7},
-		{text = "Ready", progress = 1},
-	}
-
-	for _, step in ipairs(steps) do
-		if destroyed then return end
-		loaderStatus.Text = step.text
-		loaderBar:TweenSize(
-			UDim2.new(step.progress, 0, 1, 0),
-			Enum.EasingDirection.Out,
-			Enum.EasingStyle.Quart,
-			0.35,
-			true
-		)
-		task.wait(0.45)
-	end
-
-	task.wait(0.2)
-	if destroyed then return end
-
-	loader:TweenSize(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quart, 0.2, true)
-	task.wait(0.2)
-	if destroyed then return end
-	loader.Visible = false
-	loader:Destroy()
-
-	loading = false
-	openMenu()
-end)
+	keyBtn.MouseButton1Click:Connect(tryUnlock)
+	keyBox.FocusLost:Connect(function(enter)
+		if enter then tryUnlock() end
+	end)
+end
