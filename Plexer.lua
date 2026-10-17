@@ -47,7 +47,7 @@ local DEFAULT_CONFIG = {
 	},
 }
 
--- ─── Key system (GitHub JSON + Base64 + UserId Lock) ──────
+-- ─── Key system (GitHub JSON + Base64 + UserId HWID Lock) ──
 local GITHUB_KEYS_URL = "https://raw.githubusercontent.com/complextheskid/Plexer/main/keys.json"
 
 local FALLBACK_KEYS = {
@@ -135,7 +135,6 @@ end
 
 loadConfig()
 
--- apply saved colors
 if type(config.colors) == "table" then
 	for name, rgb in pairs(config.colors) do
 		if type(rgb) == "table" and rgb[1] and COLORS[name] then
@@ -369,12 +368,6 @@ do
 		local sky = Instance.new("Sky")
 		sky.CelestialBodiesShown = false
 		sky.StarCount = 0
-		sky.SkyboxBk = "rbxassetid://0"
-		sky.SkyboxDn = "rbxassetid://0"
-		sky.SkyboxFt = "rbxassetid://0"
-		sky.SkyboxLf = "rbxassetid://0"
-		sky.SkyboxRt = "rbxassetid://0"
-		sky.SkyboxUp = "rbxassetid://0"
 		sky.Parent = Lighting
 		return sky
 	end
@@ -685,7 +678,6 @@ do
 		end
 	end)
 
-	-- Bottom JSON Import Panel
 	local jsonImportBox = Instance.new("TextBox")
 	jsonImportBox.Size = UDim2.new(1, -110, 0, 36)
 	jsonImportBox.Position = UDim2.new(0, 12, 1, -44)
@@ -864,7 +856,7 @@ do
 	task.defer(function() fetchScripts("") end)
 end
 
--- ─── Settings Tab (Full Original Settings) ────────────────
+-- ─── Settings Tab (Full Theme, Glow Gradient & Size Controls) ──
 do
 	local page = pages["Settings"]
 
@@ -998,7 +990,7 @@ do
 		end
 	end)
 
-	-- Theme presets
+	-- Theme presets (Including Glow Gradient)
 	local colorTitle = Instance.new("TextLabel")
 	colorTitle.Size = UDim2.new(1, -24, 0, 18)
 	colorTitle.Position = UDim2.new(0, 12, 0, 110)
@@ -1011,34 +1003,76 @@ do
 	colorTitle.Parent = page
 
 	local THEMES = {
-		{name = "Black", accent = {180, 180, 180}, main = {8, 8, 8}, tab = {16, 16, 16}, content = {12, 12, 12}},
-		{name = "Purple", accent = {160, 80, 255}, main = {10, 8, 16}, tab = {20, 14, 28}, content = {14, 10, 20}},
-		{name = "Blue", accent = {80, 140, 255}, main = {8, 10, 16}, tab = {14, 18, 28}, content = {10, 14, 22}},
+		{name = "Black", accent = {180, 180, 180}, main = {8, 8, 8}, tab = {16, 16, 16}, content = {12, 12, 12}, gradient = false},
+		{name = "Purple", accent = {160, 80, 255}, main = {10, 8, 16}, tab = {20, 14, 28}, content = {14, 10, 20}, gradient = false},
+		{name = "Blue", accent = {80, 140, 255}, main = {8, 10, 16}, tab = {14, 18, 28}, content = {10, 14, 22}, gradient = false},
+		{name = "Glow", accent = {140, 100, 255}, main = {10, 8, 18}, tab = {18, 12, 30}, content = {12, 10, 22}, gradient = true},
 	}
+
+	local titleGradient = title:FindFirstChildOfClass("UIGradient")
+	local function applyTheme(theme)
+		COLORS.Accent = Color3.fromRGB(unpack(theme.accent))
+		COLORS.Main = Color3.fromRGB(unpack(theme.main))
+		COLORS.Tab = Color3.fromRGB(unpack(theme.tab))
+		COLORS.Content = Color3.fromRGB(unpack(theme.content))
+
+		main.BackgroundColor3 = COLORS.Main
+		titleBar.BackgroundColor3 = COLORS.Tab
+		content.BackgroundColor3 = COLORS.Content
+		sliderFill.BackgroundColor3 = COLORS.Accent
+
+		if theme.gradient then
+			if not titleGradient then
+				titleGradient = Instance.new("UIGradient")
+				titleGradient.Parent = title
+			end
+			titleGradient.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(180, 100, 255)),
+				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(100, 180, 255)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 120, 220)),
+			})
+			title.TextColor3 = Color3.new(1, 1, 1)
+			task.spawn(function()
+				local t0 = tick()
+				while titleGradient and titleGradient.Parent and config.theme == "Glow" do
+					local o = ((tick() - t0) * 0.35) % 1
+					titleGradient.Offset = Vector2.new(o * 2 - 1, 0)
+					task.wait(0.03)
+				end
+			end)
+		else
+			if titleGradient then titleGradient:Destroy() titleGradient = nil end
+			title.TextColor3 = COLORS.Text
+		end
+
+		config.theme = theme.name
+		saveConfig()
+	end
 
 	for i, theme in ipairs(THEMES) do
 		local btn = Instance.new("TextButton")
-		btn.Size = UDim2.new(0.32, -4, 0, 32)
-		btn.Position = UDim2.new((i - 1) * 0.33, 12, 0, 134)
+		btn.Size = UDim2.new(0.24, -4, 0, 32)
+		btn.Position = UDim2.new((i - 1) * 0.25, 12, 0, 134)
 		btn.BackgroundColor3 = COLORS.Tab
 		btn.BorderSizePixel = 0
 		btn.Text = theme.name
-		btn.TextColor3 = Color3.fromRGB(theme.accent[1], theme.accent[2], theme.accent[3])
+		btn.TextColor3 = Color3.fromRGB(unpack(theme.accent))
 		btn.Font = Enum.Font.GothamBold
 		btn.TextSize = 12
 		btn.Parent = page
 		addCorner(btn, 6)
 		btn.MouseButton1Click:Connect(function()
-			COLORS.Accent = Color3.fromRGB(unpack(theme.accent))
-			COLORS.Main = Color3.fromRGB(unpack(theme.main))
-			COLORS.Tab = Color3.fromRGB(unpack(theme.tab))
-			COLORS.Content = Color3.fromRGB(unpack(theme.content))
-			main.BackgroundColor3 = COLORS.Main
-			titleBar.BackgroundColor3 = COLORS.Tab
-			content.BackgroundColor3 = COLORS.Content
-			config.theme = theme.name
-			saveConfig()
+			applyTheme(theme)
 		end)
+	end
+
+	if config.theme then
+		for _, theme in ipairs(THEMES) do
+			if theme.name == config.theme then
+				task.defer(function() applyTheme(theme) end)
+				break
+			end
+		end
 	end
 
 	-- Reset Key / HWID Lock
@@ -1228,7 +1262,7 @@ UserInputService.InputChanged:Connect(function(input)
 	end
 end)
 
--- ─── Key System Startup + Session Check ───────────────────
+-- ─── Key System Startup + Session Check (Isolated Layers) ──
 local function startLoader()
 	loader.Visible = true
 	loader.Size = UDim2.new(0, 280, 0, 100)
