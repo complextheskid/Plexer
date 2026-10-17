@@ -172,6 +172,56 @@ gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.DisplayOrder = 999
 gui.Parent = playerGui
 
+-- ─── Loader ───────────────────────────────────────────────
+local loader = Instance.new("Frame")
+loader.Name = "Loader"
+loader.Size = UDim2.new(0, 280, 0, 100)
+loader.Position = UDim2.new(0.5, -140, 0.5, -50)
+loader.BackgroundColor3 = COLORS.Main
+loader.BorderSizePixel = 0
+loader.Visible = false
+loader.ZIndex = 50
+loader.Parent = gui
+addCorner(loader, 12)
+addStroke(loader, COLORS.Stroke, 1)
+
+local loaderTitle = Instance.new("TextLabel")
+loaderTitle.Size = UDim2.new(1, 0, 0, 28)
+loaderTitle.Position = UDim2.new(0, 0, 0, 18)
+loaderTitle.BackgroundTransparency = 1
+loaderTitle.Text = "Plexer"
+loaderTitle.TextColor3 = COLORS.Text
+loaderTitle.Font = Enum.Font.GothamBold
+loaderTitle.TextSize = 16
+loaderTitle.TextXAlignment = Enum.TextXAlignment.Center
+loaderTitle.Parent = loader
+
+local loaderStatus = Instance.new("TextLabel")
+loaderStatus.Size = UDim2.new(1, -20, 0, 20)
+loaderStatus.Position = UDim2.new(0, 10, 0, 52)
+loaderStatus.BackgroundTransparency = 1
+loaderStatus.Text = "Initializing"
+loaderStatus.TextColor3 = COLORS.TextDim
+loaderStatus.Font = Enum.Font.Gotham
+loaderStatus.TextSize = 13
+loaderStatus.TextXAlignment = Enum.TextXAlignment.Center
+loaderStatus.Parent = loader
+
+local loaderBarBg = Instance.new("Frame")
+loaderBarBg.Size = UDim2.new(1, -40, 0, 4)
+loaderBarBg.Position = UDim2.new(0, 20, 0, 80)
+loaderBarBg.BackgroundColor3 = COLORS.Tab
+loaderBarBg.BorderSizePixel = 0
+loaderBarBg.Parent = loader
+addCorner(loaderBarBg, 2)
+
+local loaderBar = Instance.new("Frame")
+loaderBar.Size = UDim2.new(0, 0, 1, 0)
+loaderBar.BackgroundColor3 = COLORS.Accent
+loaderBar.BorderSizePixel = 0
+loaderBar.Parent = loaderBarBg
+addCorner(loaderBar, 2)
+
 -- ─── Main Frame ───────────────────────────────────────────
 local main = Instance.new("Frame")
 main.Name = "MainFrame"
@@ -181,6 +231,7 @@ main.BackgroundColor3 = COLORS.Main
 main.BorderSizePixel = 0
 main.Visible = false
 main.ClipsDescendants = true
+main.ZIndex = 1
 main.Parent = gui
 addCorner(main, 14)
 addStroke(main, COLORS.Stroke, 1)
@@ -261,12 +312,535 @@ addStroke(content, COLORS.Stroke, 1)
 local pages = {}
 for _, name in ipairs(TABS) do
 	local page = Instance.new("Frame")
-	page.Name = name .. "Page"
 	page.Size = UDim2.new(1, 0, 1, 0)
 	page.BackgroundTransparency = 1
 	page.Visible = false
 	page.Parent = content
 	pages[name] = page
+end
+
+-- ─── Skyboxes Tab ─────────────────────────────────────────
+do
+	local page = pages["Skyboxes"]
+	local Lighting = game:GetService("Lighting")
+
+	local function clearBlackDome()
+		local dome = workspace:FindFirstChild("PlexerBlackSky")
+		if dome then dome:Destroy() end
+	end
+
+	local function clearOldSky()
+		clearBlackDome()
+		for _, c in ipairs(Lighting:GetChildren()) do
+			if c:IsA("Sky") then c:Destroy() end
+		end
+	end
+
+	local function applyBlackSky()
+		clearOldSky()
+		local dome = Instance.new("Part")
+		dome.Name = "PlexerBlackSky"
+		dome.Shape = Enum.PartType.Ball
+		dome.Size = Vector3.new(4000, 4000, 4000)
+		dome.Anchored = true
+		dome.CanCollide = false
+		dome.CanQuery = false
+		dome.CanTouch = false
+		dome.CastShadow = false
+		dome.Material = Enum.Material.Neon
+		dome.Color = Color3.new(0, 0, 0)
+		dome.Transparency = 0
+		dome.Parent = workspace
+
+		local mesh = Instance.new("SpecialMesh")
+		mesh.MeshType = Enum.MeshType.Sphere
+		mesh.Scale = Vector3.new(-1, -1, -1)
+		mesh.Parent = dome
+
+		task.spawn(function()
+			while dome.Parent do
+				local cam = workspace.CurrentCamera
+				if cam then dome.Position = cam.CFrame.Position end
+				task.wait(0.1)
+			end
+		end)
+
+		local sky = Instance.new("Sky")
+		sky.CelestialBodiesShown = false
+		sky.StarCount = 0
+		sky.SkyboxBk = "rbxassetid://0"
+		sky.SkyboxDn = "rbxassetid://0"
+		sky.SkyboxFt = "rbxassetid://0"
+		sky.SkyboxLf = "rbxassetid://0"
+		sky.SkyboxRt = "rbxassetid://0"
+		sky.SkyboxUp = "rbxassetid://0"
+		sky.Parent = Lighting
+		return sky
+	end
+
+	local function applySky(faces, opts)
+		opts = opts or {}
+		clearOldSky()
+		local sky = Instance.new("Sky")
+		local facesList = {"Bk", "Dn", "Ft", "Lf", "Rt", "Up"}
+		if type(faces) == "string" then
+			for _, f in ipairs(facesList) do sky["Skybox" .. f] = faces end
+		else
+			for _, f in ipairs(facesList) do sky["Skybox" .. f] = faces[f] or faces.Up or "" end
+		end
+		sky.CelestialBodiesShown = opts.celestial == true
+		sky.StarCount = opts.stars or 0
+		sky.Parent = Lighting
+		return sky
+	end
+
+	local function isValidCdn(url)
+		if type(url) ~= "string" or url == "" then return false end
+		local lower = url:lower()
+		if lower:find("rbxassetid://", 1, true) or lower:find("rbxasset://", 1, true) then return true end
+		if tonumber(url) then return true end
+		if not lower:find("^https?://") then return false end
+		return true
+	end
+
+	local PRESETS = {
+		{
+			name = "Pink Sky",
+			faces = {
+				Bk = "rbxassetid://271042516", Dn = "rbxassetid://271042516",
+				Ft = "rbxassetid://271042516", Lf = "rbxassetid://271042516",
+				Rt = "rbxassetid://271042516", Up = "rbxassetid://271042516",
+			},
+			opts = {celestial = false, stars = 0},
+			special = nil,
+		},
+		{
+			name = "Black Sky",
+			faces = nil,
+			opts = {celestial = false, stars = 0},
+			special = "black",
+		},
+		{
+			name = "Aurora Borealis",
+			faces = {
+				Bk = "rbxassetid://159454299", Dn = "rbxassetid://159454286",
+				Ft = "rbxassetid://159454293", Lf = "rbxassetid://159454286",
+				Rt = "rbxassetid://159454300", Up = "rbxassetid://159454288",
+			},
+			opts = {celestial = true, stars = 3000},
+			special = nil,
+		},
+	}
+
+	local statusLbl = Instance.new("TextLabel")
+	statusLbl.Size = UDim2.new(1, -24, 0, 18)
+	statusLbl.Position = UDim2.new(0, 12, 1, -24)
+	statusLbl.BackgroundTransparency = 1
+	statusLbl.Text = ""
+	statusLbl.TextColor3 = COLORS.TextDim
+	statusLbl.Font = Enum.Font.Gotham
+	statusLbl.TextSize = 12
+	statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+	statusLbl.Parent = page
+
+	local function setStatus(text, ok)
+		statusLbl.Text = text
+		statusLbl.TextColor3 = ok and Color3.fromRGB(80, 200, 120) or COLORS.Danger
+		task.delay(2.5, function()
+			if statusLbl and statusLbl.Parent then statusLbl.Text = "" end
+		end)
+	end
+
+	local titleLbl = Instance.new("TextLabel")
+	titleLbl.Size = UDim2.new(1, -24, 0, 20)
+	titleLbl.Position = UDim2.new(0, 12, 0, 10)
+	titleLbl.BackgroundTransparency = 1
+	titleLbl.Text = "Presets"
+	titleLbl.TextColor3 = COLORS.TextDim
+	titleLbl.Font = Enum.Font.GothamMedium
+	titleLbl.TextSize = 13
+	titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+	titleLbl.Parent = page
+
+	for i, preset in ipairs(PRESETS) do
+		local btn = Instance.new("TextButton")
+		btn.Size = UDim2.new(1, -24, 0, 36)
+		btn.Position = UDim2.new(0, 12, 0, 34 + (i - 1) * 42)
+		btn.BackgroundColor3 = COLORS.Tab
+		btn.BorderSizePixel = 0
+		btn.Text = "  " .. preset.name
+		btn.TextColor3 = COLORS.Text
+		btn.Font = Enum.Font.GothamMedium
+		btn.TextSize = 14
+		btn.TextXAlignment = Enum.TextXAlignment.Left
+		btn.AutoButtonColor = true
+		btn.Parent = page
+		addCorner(btn, 8)
+
+		btn.MouseButton1Click:Connect(function()
+			if preset.special == "black" then
+				applyBlackSky()
+			else
+				applySky(preset.faces, preset.opts)
+			end
+			setStatus("Applied " .. preset.name, true)
+		end)
+	end
+
+	local customY = 34 + #PRESETS * 42 + 12
+	local customTitle = Instance.new("TextLabel")
+	customTitle.Size = UDim2.new(1, -24, 0, 20)
+	customTitle.Position = UDim2.new(0, 12, 0, customY)
+	customTitle.BackgroundTransparency = 1
+	customTitle.Text = "Custom (CDN / asset link)"
+	customTitle.TextColor3 = COLORS.TextDim
+	customTitle.Font = Enum.Font.GothamMedium
+	customTitle.TextSize = 13
+	customTitle.TextXAlignment = Enum.TextXAlignment.Left
+	customTitle.Parent = page
+
+	local linkBox = Instance.new("TextBox")
+	linkBox.Size = UDim2.new(1, -24, 0, 32)
+	linkBox.Position = UDim2.new(0, 12, 0, customY + 24)
+	linkBox.BackgroundColor3 = COLORS.Tab
+	linkBox.BorderSizePixel = 0
+	linkBox.PlaceholderText = "https://cdn... or rbxassetid://..."
+	linkBox.PlaceholderColor3 = COLORS.TextDim
+	linkBox.Text = ""
+	linkBox.TextColor3 = COLORS.Text
+	linkBox.Font = Enum.Font.Gotham
+	linkBox.TextSize = 12
+	linkBox.ClearTextOnFocus = false
+	linkBox.TextXAlignment = Enum.TextXAlignment.Left
+	linkBox.Parent = page
+	addCorner(linkBox, 6)
+	addStroke(linkBox, COLORS.Stroke, 1)
+
+	local linkPad = Instance.new("UIPadding")
+	linkPad.PaddingLeft = UDim.new(0, 10)
+	linkPad.Parent = linkBox
+
+	local applyCustom = Instance.new("TextButton")
+	applyCustom.Size = UDim2.new(0.48, -4, 0, 32)
+	applyCustom.Position = UDim2.new(0, 12, 0, customY + 64)
+	applyCustom.BackgroundColor3 = COLORS.Accent
+	applyCustom.BorderSizePixel = 0
+	applyCustom.Text = "Apply Link"
+	applyCustom.TextColor3 = Color3.new(1, 1, 1)
+	applyCustom.Font = Enum.Font.GothamBold
+	applyCustom.TextSize = 13
+	applyCustom.AutoButtonColor = true
+	applyCustom.Parent = page
+	addCorner(applyCustom, 6)
+
+	local resetBtn = Instance.new("TextButton")
+	resetBtn.Size = UDim2.new(0.48, -4, 0, 32)
+	resetBtn.Position = UDim2.new(0.52, 0, 0, customY + 64)
+	resetBtn.BackgroundColor3 = COLORS.Tab
+	resetBtn.BorderSizePixel = 0
+	resetBtn.Text = "Reset Sky"
+	resetBtn.TextColor3 = COLORS.Text
+	resetBtn.Font = Enum.Font.GothamBold
+	resetBtn.TextSize = 13
+	resetBtn.AutoButtonColor = true
+	resetBtn.Parent = page
+	addCorner(resetBtn, 6)
+
+	applyCustom.MouseButton1Click:Connect(function()
+		local url = linkBox.Text:gsub("^%s+", ""):gsub("%s+$", "")
+		if not isValidCdn(url) then
+			setStatus("Invalid link — use CDN or rbxassetid://", false)
+			return
+		end
+		if tonumber(url) then
+			url = "rbxassetid://" .. url
+		end
+		applySky(url, {celestial = false, stars = 0})
+		setStatus("Applied skybox link", true)
+	end)
+
+	resetBtn.MouseButton1Click:Connect(function()
+		clearOldSky()
+		local sky = Instance.new("Sky")
+		sky.Parent = Lighting
+		setStatus("Sky reset", true)
+	end)
+end
+
+-- ─── FFlags Tab ───────────────────────────────────────────
+do
+	local page = pages["FFlags"]
+
+	local function trySetFFlag(name, value)
+		local ok = pcall(function()
+			if setfflag then
+				setfflag(name, tostring(value))
+			end
+		end)
+		return ok
+	end
+
+	local PRESETS = {
+		{name = "DFIntTaskSchedulerTargetFps", value = "999", cat = "Performance"},
+		{name = "FFlagDisablePostFx", value = "True", cat = "Graphics"},
+		{name = "FIntDebugForceMSAASamples", value = "0", cat = "Graphics"},
+		{name = "DFFlagTextureQualityOverrideEnabled", value = "True", cat = "Graphics"},
+		{name = "DFIntTextureQualityOverride", value = "1", cat = "Graphics"},
+	}
+
+	local activeFlags = {}
+	for _, p in ipairs(PRESETS) do
+		activeFlags[p.name] = p.value
+	end
+
+	if type(config.fflags) == "table" then
+		for k, v in pairs(config.fflags) do
+			activeFlags[k] = tostring(v)
+		end
+	end
+
+	local function persistFlags()
+		config.fflags = activeFlags
+		saveConfig()
+	end
+
+	local searchBox = Instance.new("TextBox")
+	searchBox.Size = UDim2.new(1, -24, 0, 32)
+	searchBox.Position = UDim2.new(0, 12, 0, 10)
+	searchBox.BackgroundColor3 = COLORS.Tab
+	searchBox.BorderSizePixel = 0
+	searchBox.PlaceholderText = "Search flags..."
+	searchBox.PlaceholderColor3 = COLORS.TextDim
+	searchBox.Text = ""
+	searchBox.TextColor3 = COLORS.Text
+	searchBox.Font = Enum.Font.Gotham
+	searchBox.TextSize = 13
+	searchBox.ClearTextOnFocus = false
+	searchBox.TextXAlignment = Enum.TextXAlignment.Left
+	searchBox.Parent = page
+	addCorner(searchBox, 6)
+	addStroke(searchBox, COLORS.Stroke, 1)
+
+	local searchPad = Instance.new("UIPadding")
+	searchPad.PaddingLeft = UDim.new(0, 10)
+	searchPad.Parent = searchBox
+
+	local listFrame = Instance.new("ScrollingFrame")
+	listFrame.Size = UDim2.new(1, -24, 1, -120)
+	listFrame.Position = UDim2.new(0, 12, 0, 52)
+	listFrame.BackgroundTransparency = 1
+	listFrame.BorderSizePixel = 0
+	listFrame.ScrollBarThickness = 4
+	listFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	listFrame.Parent = page
+
+	local listLayout = Instance.new("UIListLayout")
+	listLayout.Padding = UDim.new(0, 4)
+	listLayout.Parent = listFrame
+
+	local flagRows = {}
+
+	local function makeFlagRow(flagName, flagValue)
+		if flagRows[flagName] then
+			flagRows[flagName]:Destroy()
+		end
+
+		local row = Instance.new("Frame")
+		row.Size = UDim2.new(1, 0, 0, 34)
+		row.BackgroundColor3 = COLORS.Tab
+		row.BorderSizePixel = 0
+		row.Parent = listFrame
+		addCorner(row, 6)
+
+		local nLbl = Instance.new("TextLabel")
+		nLbl.Size = UDim2.new(0.62, -8, 1, 0)
+		nLbl.Position = UDim2.new(0, 8, 0, 0)
+		nLbl.BackgroundTransparency = 1
+		nLbl.Text = flagName
+		nLbl.TextColor3 = COLORS.Text
+		nLbl.Font = Enum.Font.Gotham
+		nLbl.TextSize = 11
+		nLbl.TextXAlignment = Enum.TextXAlignment.Left
+		nLbl.Parent = row
+
+		local vBox = Instance.new("TextBox")
+		vBox.Size = UDim2.new(0, 70, 0, 24)
+		vBox.Position = UDim2.new(1, -75, 0.5, -12)
+		vBox.BackgroundColor3 = COLORS.Content
+		vBox.BorderSizePixel = 0
+		vBox.Text = tostring(flagValue)
+		vBox.TextColor3 = COLORS.Accent
+		vBox.Font = Enum.Font.GothamBold
+		vBox.TextSize = 12
+		vBox.Parent = row
+		addCorner(vBox, 4)
+
+		vBox.FocusLost:Connect(function()
+			activeFlags[flagName] = vBox.Text
+			persistFlags()
+		end)
+
+		flagRows[flagName] = row
+	end
+
+	for name, value in pairs(activeFlags) do
+		makeFlagRow(name, value)
+	end
+end
+
+-- ─── ScriptHub Tab ────────────────────────────────────────
+do
+	local page = pages["ScriptHub"]
+	local function httpGet(url)
+		local ok, body = pcall(function() return game:HttpGet(url) end)
+		if ok and body then return body end
+		return nil
+	end
+
+	local searchWrap = Instance.new("Frame")
+	searchWrap.Size = UDim2.new(1, -24, 0, 40)
+	searchWrap.Position = UDim2.new(0, 12, 0, 10)
+	searchWrap.BackgroundColor3 = COLORS.Tab
+	searchWrap.BorderSizePixel = 0
+	searchWrap.Parent = page
+	addCorner(searchWrap, 10)
+	addStroke(searchWrap, COLORS.Stroke, 1)
+
+	local searchBox = Instance.new("TextBox")
+	searchBox.Size = UDim2.new(1, -100, 1, 0)
+	searchBox.Position = UDim2.new(0, 34, 0, 0)
+	searchBox.BackgroundTransparency = 1
+	searchBox.PlaceholderText = "Search scripts..."
+	searchBox.PlaceholderColor3 = COLORS.TextDim
+	searchBox.Text = ""
+	searchBox.TextColor3 = COLORS.Text
+	searchBox.Font = Enum.Font.Gotham
+	searchBox.TextSize = 14
+	searchBox.Parent = searchWrap
+
+	local searchBtn = Instance.new("TextButton")
+	searchBtn.Size = UDim2.new(0, 60, 0, 28)
+	searchBtn.Position = UDim2.new(1, -66, 0.5, -14)
+	searchBtn.BackgroundColor3 = COLORS.Accent
+	searchBtn.BorderSizePixel = 0
+	searchBtn.Text = "Go"
+	searchBtn.TextColor3 = Color3.new(1, 1, 1)
+	searchBtn.Font = Enum.Font.GothamBold
+	searchBtn.Parent = searchWrap
+	addCorner(searchBtn, 6)
+
+	local listFrame = Instance.new("ScrollingFrame")
+	listFrame.Size = UDim2.new(1, -24, 1, -96)
+	listFrame.Position = UDim2.new(0, 12, 0, 58)
+	listFrame.BackgroundTransparency = 1
+	listFrame.BorderSizePixel = 0
+	listFrame.ScrollBarThickness = 4
+	listFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	listFrame.Parent = page
+
+	local listLayout = Instance.new("UIListLayout")
+	listLayout.Padding = UDim.new(0, 4)
+	listLayout.Parent = listFrame
+
+	local function fetchScripts(query)
+		for _, c in ipairs(listFrame:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
+		task.spawn(function()
+			local q = query and query ~= "" and ("&q=" .. HttpService:UrlEncode(query)) or ""
+			local url = "https://robloxscripts.com/api/v1/scripts?limit=20" .. q
+			local body = httpGet(url)
+			if not body then return end
+			local ok, data = pcall(function() return HttpService:JSONDecode(body) end)
+			if not ok or not data then return end
+			local list = data.data or data.scripts or {}
+			for _, item in ipairs(list) do
+				local row = Instance.new("Frame")
+				row.Size = UDim2.new(1, 0, 0, 52)
+				row.BackgroundColor3 = COLORS.Tab
+				row.Parent = listFrame
+				addCorner(row, 6)
+
+				local title = Instance.new("TextLabel")
+				title.Size = UDim2.new(1, -90, 0, 20)
+				title.Position = UDim2.new(0, 10, 0, 6)
+				title.BackgroundTransparency = 1
+				title.Text = item.title or "Untitled"
+				title.TextColor3 = COLORS.Text
+				title.Font = Enum.Font.GothamMedium
+				title.TextSize = 13
+				title.Parent = row
+
+				local runBtn = Instance.new("TextButton")
+				runBtn.Size = UDim2.new(0, 70, 0, 28)
+				runBtn.Position = UDim2.new(1, -80, 0.5, -14)
+				runBtn.BackgroundColor3 = COLORS.Accent
+				runBtn.BorderSizePixel = 0
+				runBtn.Text = "Run"
+				runBtn.TextColor3 = Color3.new(1, 1, 1)
+				runBtn.Font = Enum.Font.GothamBold
+				runBtn.Parent = row
+				addCorner(runBtn, 6)
+
+				runBtn.MouseButton1Click:Connect(function()
+					task.spawn(function()
+						if item.script then
+							local fn = loadstring(item.script)
+							if fn then fn() end
+						elseif item.rawScriptUrl then
+							local src = httpGet(item.rawScriptUrl)
+							if src then
+								local fn = loadstring(src)
+								if fn then fn() end
+							end
+						end
+					end)
+				end)
+			end
+		end)
+	end
+
+	searchBtn.MouseButton1Click:Connect(function() fetchScripts(searchBox.Text) end)
+	task.defer(function() fetchScripts("") end)
+end
+
+-- ─── Settings Tab ─────────────────────────────────────────
+do
+	local page = pages["Settings"]
+	local resetKeyBtn = Instance.new("TextButton")
+	resetKeyBtn.Size = UDim2.new(0, 150, 0, 32)
+	resetKeyBtn.Position = UDim2.new(0, 12, 0, 12)
+	resetKeyBtn.BackgroundColor3 = COLORS.Danger
+	resetKeyBtn.BorderSizePixel = 0
+	resetKeyBtn.Text = "Reset Key Lock"
+	resetKeyBtn.TextColor3 = Color3.new(1, 1, 1)
+	resetKeyBtn.Font = Enum.Font.GothamBold
+	resetKeyBtn.TextSize = 13
+	resetKeyBtn.Parent = page
+	addCorner(resetKeyBtn, 6)
+
+	resetKeyBtn.MouseButton1Click:Connect(function()
+		config.savedKey = ""
+		config.linkedUserId = 0
+		saveConfig()
+		resetKeyBtn.Text = "Cleared! Rejoining..."
+		task.delay(1, function()
+			game:GetService("TeleportService"):Teleport(game.PlaceId, player)
+		end)
+	end)
+end
+
+-- ─── Info Tab ─────────────────────────────────────────────
+do
+	local infoPage = pages["Info"]
+	local creditLbl = Instance.new("TextLabel")
+	creditLbl.Size = UDim2.new(1, -20, 0, 22)
+	creditLbl.Position = UDim2.new(0, 10, 0, 20)
+	creditLbl.BackgroundTransparency = 1
+	creditLbl.Text = "Plexer — Fixed & Linked"
+	creditLbl.TextColor3 = COLORS.Accent
+	creditLbl.Font = Enum.Font.GothamMedium
+	creditLbl.TextSize = 14
+	creditLbl.TextXAlignment = Enum.TextXAlignment.Left
+	creditLbl.Parent = infoPage
 end
 
 -- ─── Tab Switching Logic ──────────────────────────────────
@@ -296,132 +870,7 @@ for _, btn in pairs(tabButtons) do
 	end)
 end
 
--- ─── Skyboxes Tab ─────────────────────────────────────────
-do
-	local page = pages["Skyboxes"]
-	local Lighting = game:GetService("Lighting")
-
-	local function clearBlackDome()
-		local dome = workspace:FindFirstChild("PlexerBlackSky")
-		if dome then dome:Destroy() end
-	end
-
-	local function clearOldSky()
-		clearBlackDome()
-		for _, c in ipairs(Lighting:GetChildren()) do
-			if c:IsA("Sky") then c:Destroy() end
-		end
-	end
-
-	local function applySky(faces, opts)
-		opts = opts or {}
-		clearOldSky()
-		local sky = Instance.new("Sky")
-		local facesList = {"Bk", "Dn", "Ft", "Lf", "Rt", "Up"}
-		if type(faces) == "string" then
-			for _, f in ipairs(facesList) do sky["Skybox" .. f] = faces end
-		else
-			for _, f in ipairs(facesList) do sky["Skybox" .. f] = faces[f] or faces.Up or "" end
-		end
-		sky.CelestialBodiesShown = opts.celestial == true
-		sky.StarCount = opts.stars or 0
-		sky.Parent = Lighting
-	end
-
-	local PRESETS = {
-		{name = "Pink Sky", faces = "rbxassetid://271042516"},
-		{name = "Aurora Borealis", faces = {Bk="rbxassetid://159454299", Dn="rbxassetid://159454286", Ft="rbxassetid://159454293", Lf="rbxassetid://159454286", Rt="rbxassetid://159454300", Up="rbxassetid://159454288"}},
-	}
-
-	for i, preset in ipairs(PRESETS) do
-		local btn = Instance.new("TextButton")
-		btn.Size = UDim2.new(1, -24, 0, 36)
-		btn.Position = UDim2.new(0, 12, 0, 12 + (i - 1) * 42)
-		btn.BackgroundColor3 = COLORS.Tab
-		btn.BorderSizePixel = 0
-		btn.Text = "  " .. preset.name
-		btn.TextColor3 = COLORS.Text
-		btn.Font = Enum.Font.GothamMedium
-		btn.TextSize = 14
-		btn.TextXAlignment = Enum.TextXAlignment.Left
-		btn.Parent = page
-		addCorner(btn, 8)
-
-		btn.MouseButton1Click:Connect(function()
-			applySky(preset.faces)
-		end)
-	end
-end
-
--- ─── FFlags Tab ───────────────────────────────────────────
-do
-	local page = pages["FFlags"]
-	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, -24, 0, 30)
-	lbl.Position = UDim2.new(0, 12, 0, 12)
-	lbl.BackgroundTransparency = 1
-	lbl.Text = "FFlag Fast Editor Active"
-	lbl.TextColor3 = COLORS.Text
-	lbl.Font = Enum.Font.GothamMedium
-	lbl.TextSize = 14
-	lbl.TextXAlignment = Enum.TextXAlignment.Left
-	lbl.Parent = page
-end
-
--- ─── ScriptHub Tab ────────────────────────────────────────
-do
-	local page = pages["ScriptHub"]
-	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, -24, 0, 30)
-	lbl.Position = UDim2.new(0, 12, 0, 12)
-	lbl.BackgroundTransparency = 1
-	lbl.Text = "ScriptHub Ready"
-	lbl.TextColor3 = COLORS.Text
-	lbl.Font = Enum.Font.GothamMedium
-	lbl.TextSize = 14
-	lbl.TextXAlignment = Enum.TextXAlignment.Left
-	lbl.Parent = page
-end
-
--- ─── Settings Tab ─────────────────────────────────────────
-do
-	local page = pages["Settings"]
-	local resetKeyBtn = Instance.new("TextButton")
-	resetKeyBtn.Size = UDim2.new(0, 140, 0, 32)
-	resetKeyBtn.Position = UDim2.new(0, 12, 0, 12)
-	resetKeyBtn.BackgroundColor3 = COLORS.Danger
-	resetKeyBtn.BorderSizePixel = 0
-	resetKeyBtn.Text = "Reset Key Lock"
-	resetKeyBtn.TextColor3 = Color3.new(1, 1, 1)
-	resetKeyBtn.Font = Enum.Font.GothamBold
-	resetKeyBtn.TextSize = 13
-	resetKeyBtn.Parent = page
-	addCorner(resetKeyBtn, 6)
-
-	resetKeyBtn.MouseButton1Click:Connect(function()
-		config.savedKey = ""
-		config.linkedUserId = 0
-		saveConfig()
-		resetKeyBtn.Text = "Cleared!"
-	end)
-end
-
--- ─── Info Tab ─────────────────────────────────────────────
-do
-	local infoPage = pages["Info"]
-	local creditLbl = Instance.new("TextLabel")
-	creditLbl.Size = UDim2.new(1, -20, 0, 22)
-	creditLbl.Position = UDim2.new(0, 10, 0, 20)
-	creditLbl.BackgroundTransparency = 1
-	creditLbl.Text = "Plexer — Fixed Edition"
-	creditLbl.TextColor3 = COLORS.Accent
-	creditLbl.Font = Enum.Font.GothamMedium
-	creditLbl.TextSize = 14
-	creditLbl.TextXAlignment = Enum.TextXAlignment.Left
-	creditLbl.Parent = infoPage
-end
-
--- ─── Window Controls ──────────────────────────────────────
+-- ─── Open / Close / Input ─────────────────────────────────
 local isOpen = false
 local destroyed = false
 
@@ -479,7 +928,20 @@ UserInputService.InputChanged:Connect(function(input)
 	end
 end)
 
--- ─── Key System Check ─────────────────────────────────────
+-- ─── Key System Startup + Session Check ───────────────────
+local function startLoader()
+	loader.Visible = true
+	loader.Size = UDim2.new(0, 280, 0, 100)
+	task.spawn(function()
+		loaderStatus.Text = "Authenticating..."
+		loaderBar:TweenSize(UDim2.new(1, 0, 1, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quart, 0.3, true)
+		task.wait(0.4)
+		loader.Visible = false
+		loader:Destroy()
+		openMenu()
+	end)
+end
+
 local function hasValidStoredSession()
 	if config.savedKey ~= "" and config.linkedUserId == player.UserId then
 		return isKeyValid(config.savedKey)
@@ -488,7 +950,7 @@ local function hasValidStoredSession()
 end
 
 if hasValidStoredSession() then
-	openMenu()
+	startLoader()
 else
 	local keyFrame = Instance.new("Frame")
 	keyFrame.Name = "KeySystemFrame"
@@ -496,7 +958,7 @@ else
 	keyFrame.Position = UDim2.new(0.5, -160, 0.5, -90)
 	keyFrame.BackgroundColor3 = COLORS.Main
 	keyFrame.BorderSizePixel = 0
-	keyFrame.ZIndex = 10
+	keyFrame.ZIndex = 100
 	keyFrame.Parent = gui
 	addCorner(keyFrame, 12)
 	addStroke(keyFrame, COLORS.Stroke, 1)
@@ -531,7 +993,7 @@ else
 	keyBtn.Position = UDim2.new(0, 12, 0, 110)
 	keyBtn.BackgroundColor3 = COLORS.Accent
 	keyBtn.BorderSizePixel = 0
-	keyBtn.Text = "Unlock"
+	keyBtn.Text = "Unlock & Link"
 	keyBtn.TextColor3 = Color3.new(1, 1, 1)
 	keyBtn.Font = Enum.Font.GothamBold
 	keyBtn.TextSize = 14
@@ -545,11 +1007,11 @@ else
 			config.linkedUserId = player.UserId
 			saveConfig()
 			keyFrame:Destroy()
-			openMenu()
+			startLoader()
 		else
 			keyBtn.Text = "Invalid Key!"
 			task.delay(1.5, function()
-				if keyBtn and keyBtn.Parent then keyBtn.Text = "Unlock" end
+				if keyBtn and keyBtn.Parent then keyBtn.Text = "Unlock & Link" end
 			end)
 		end
 	end
