@@ -369,6 +369,12 @@ do
 		local sky = Instance.new("Sky")
 		sky.CelestialBodiesShown = false
 		sky.StarCount = 0
+		sky.SkyboxBk = "rbxassetid://0"
+		sky.SkyboxDn = "rbxassetid://0"
+		sky.SkyboxFt = "rbxassetid://0"
+		sky.SkyboxLf = "rbxassetid://0"
+		sky.SkyboxRt = "rbxassetid://0"
+		sky.SkyboxUp = "rbxassetid://0"
 		sky.Parent = Lighting
 		return sky
 	end
@@ -551,9 +557,10 @@ do
 	end)
 end
 
--- ─── FFlags Tab ───────────────────────────────────────────
+-- ─── FFlags Tab (Voidstrap-style Full Editor + Bottom Box) ───
 do
 	local page = pages["FFlags"]
+
 	local function trySetFFlag(name, value)
 		local ok = pcall(function()
 			if setfflag then setfflag(name, tostring(value)) end
@@ -562,9 +569,17 @@ do
 	end
 
 	local PRESETS = {
-		{name = "DFIntTaskSchedulerTargetFps", value = "999"},
-		{name = "FFlagDisablePostFx", value = "True"},
-		{name = "FIntDebugForceMSAASamples", value = "0"},
+		{name = "DFIntTaskSchedulerTargetFps", value = "999", cat = "Performance"},
+		{name = "FFlagDisablePostFx", value = "True", cat = "Graphics"},
+		{name = "FIntDebugForceMSAASamples", value = "0", cat = "Graphics"},
+		{name = "DFFlagTextureQualityOverrideEnabled", value = "True", cat = "Graphics"},
+		{name = "DFIntTextureQualityOverride", value = "1", cat = "Graphics"},
+		{name = "FFlagDebugGraphicsPreferD3D11", value = "True", cat = "Graphics"},
+		{name = "DFFlagDisableDPIScale", value = "True", cat = "UI"},
+		{name = "FFlagHandleAltEnterFullscreenManually", value = "True", cat = "UI"},
+		{name = "FIntFRMMaxGrassDistance", value = "0", cat = "Graphics"},
+		{name = "FIntFRMMinGrassDistance", value = "0", cat = "Graphics"},
+		{name = "DFIntDebugFRMQualityLevelOverride", value = "1", cat = "Graphics"},
 	}
 
 	local activeFlags = {}
@@ -579,7 +594,7 @@ do
 	end
 
 	local searchBox = Instance.new("TextBox")
-	searchBox.Size = UDim2.new(1, -24, 0, 32)
+	searchBox.Size = UDim2.new(1, -24, 0, 30)
 	searchBox.Position = UDim2.new(0, 12, 0, 10)
 	searchBox.BackgroundColor3 = COLORS.Tab
 	searchBox.BorderSizePixel = 0
@@ -593,9 +608,13 @@ do
 	addCorner(searchBox, 6)
 	addStroke(searchBox, COLORS.Stroke, 1)
 
+	local searchPad = Instance.new("UIPadding")
+	searchPad.PaddingLeft = UDim.new(0, 10)
+	searchPad.Parent = searchBox
+
 	local listFrame = Instance.new("ScrollingFrame")
-	listFrame.Size = UDim2.new(1, -24, 1, -120)
-	listFrame.Position = UDim2.new(0, 12, 0, 52)
+	listFrame.Size = UDim2.new(1, -24, 1, -165)
+	listFrame.Position = UDim2.new(0, 12, 0, 48)
 	listFrame.BackgroundTransparency = 1
 	listFrame.BorderSizePixel = 0
 	listFrame.ScrollBarThickness = 4
@@ -606,9 +625,15 @@ do
 	listLayout.Padding = UDim.new(0, 4)
 	listLayout.Parent = listFrame
 
-	for name, value in pairs(activeFlags) do
+	local flagRows = {}
+
+	local function makeFlagRow(flagName, flagValue)
+		if flagRows[flagName] then
+			flagRows[flagName]:Destroy()
+		end
+
 		local row = Instance.new("Frame")
-		row.Size = UDim2.new(1, 0, 0, 34)
+		row.Size = UDim2.new(1, 0, 0, 32)
 		row.BackgroundColor3 = COLORS.Tab
 		row.BorderSizePixel = 0
 		row.Parent = listFrame
@@ -618,18 +643,19 @@ do
 		nLbl.Size = UDim2.new(0.62, -8, 1, 0)
 		nLbl.Position = UDim2.new(0, 8, 0, 0)
 		nLbl.BackgroundTransparency = 1
-		nLbl.Text = name
+		nLbl.Text = flagName
 		nLbl.TextColor3 = COLORS.Text
 		nLbl.Font = Enum.Font.Gotham
 		nLbl.TextSize = 11
+		nLbl.TextXAlignment = Enum.TextXAlignment.Left
 		nLbl.Parent = row
 
 		local vBox = Instance.new("TextBox")
-		vBox.Size = UDim2.new(0, 70, 0, 24)
-		vBox.Position = UDim2.new(1, -75, 0.5, -12)
+		vBox.Size = UDim2.new(0, 70, 0, 22)
+		vBox.Position = UDim2.new(1, -75, 0.5, -11)
 		vBox.BackgroundColor3 = COLORS.Content
 		vBox.BorderSizePixel = 0
-		vBox.Text = tostring(value)
+		vBox.Text = tostring(flagValue)
 		vBox.TextColor3 = COLORS.Accent
 		vBox.Font = Enum.Font.GothamBold
 		vBox.TextSize = 12
@@ -637,10 +663,91 @@ do
 		addCorner(vBox, 4)
 
 		vBox.FocusLost:Connect(function()
-			activeFlags[name] = vBox.Text
+			activeFlags[flagName] = vBox.Text
 			persistFlags()
 		end)
+
+		flagRows[flagName] = row
 	end
+
+	for name, value in pairs(activeFlags) do
+		makeFlagRow(name, value)
+	end
+
+	searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+		local filter = searchBox.Text:lower()
+		for name, row in pairs(flagRows) do
+			if filter == "" or name:lower():find(filter, 1, true) then
+				row.Visible = true
+			else
+				row.Visible = false
+			end
+		end
+	end)
+
+	-- Bottom JSON Import Panel
+	local jsonImportBox = Instance.new("TextBox")
+	jsonImportBox.Size = UDim2.new(1, -110, 0, 36)
+	jsonImportBox.Position = UDim2.new(0, 12, 1, -44)
+	jsonImportBox.BackgroundColor3 = COLORS.Tab
+	jsonImportBox.BorderSizePixel = 0
+	jsonImportBox.PlaceholderText = 'Paste JSON: {"FlagName": "Value"}'
+	jsonImportBox.PlaceholderColor3 = COLORS.TextDim
+	jsonImportBox.Text = ""
+	jsonImportBox.TextColor3 = COLORS.Text
+	jsonImportBox.Font = Enum.Font.Gotham
+	jsonImportBox.TextSize = 11
+	jsonImportBox.ClearTextOnFocus = false
+	jsonImportBox.MultiLine = true
+	jsonImportBox.TextXAlignment = Enum.TextXAlignment.Left
+	jsonImportBox.TextYAlignment = Enum.TextYAlignment.Top
+	jsonImportBox.Parent = page
+	addCorner(jsonImportBox, 6)
+	addStroke(jsonImportBox, COLORS.Stroke, 1)
+
+	local importPad = Instance.new("UIPadding")
+	importPad.PaddingLeft = UDim.new(0, 8)
+	importPad.PaddingTop = UDim.new(0, 6)
+	importPad.Parent = jsonImportBox
+
+	local importJsonBtn = Instance.new("TextButton")
+	importJsonBtn.Size = UDim2.new(0, 90, 0, 36)
+	importJsonBtn.Position = UDim2.new(1, -98, 1, -44)
+	importJsonBtn.BackgroundColor3 = COLORS.Accent
+	importJsonBtn.BorderSizePixel = 0
+	importJsonBtn.Text = "Import JSON"
+	importJsonBtn.TextColor3 = Color3.new(1, 1, 1)
+	importJsonBtn.Font = Enum.Font.GothamBold
+	importJsonBtn.TextSize = 12
+	importJsonBtn.Parent = page
+	addCorner(importJsonBtn, 6)
+
+	importJsonBtn.MouseButton1Click:Connect(function()
+		local raw = jsonImportBox.Text:gsub("^%s+", ""):gsub("%s+$", "")
+		if raw == "" then return end
+		local ok, decoded = pcall(function()
+			return HttpService:JSONDecode(raw)
+		end)
+		if ok and type(decoded) == "table" then
+			for k, v in pairs(decoded) do
+				if type(k) == "string" then
+					activeFlags[k] = tostring(v)
+					makeFlagRow(k, tostring(v))
+					trySetFFlag(k, tostring(v))
+				end
+			end
+			persistFlags()
+			jsonImportBox.Text = "Imported Successfully!"
+			task.delay(1.5, function()
+				if jsonImportBox and jsonImportBox.Parent then jsonImportBox.Text = "" end
+			end)
+		else
+			jsonImportBox.Text = "Invalid JSON Format!"
+			task.delay(1.5, function()
+				if jsonImportBox and jsonImportBox.Parent then jsonImportBox.Text = "" end
+			end)
+		end
+	end)
 end
 
 -- ─── ScriptHub Tab ────────────────────────────────────────
@@ -757,19 +864,195 @@ do
 	task.defer(function() fetchScripts("") end)
 end
 
--- ─── Settings Tab ─────────────────────────────────────────
+-- ─── Settings Tab (Full Original Settings) ────────────────
 do
 	local page = pages["Settings"]
+
+	local function makeRow(y, labelText)
+		local row = Instance.new("Frame")
+		row.Size = UDim2.new(1, -24, 0, 40)
+		row.Position = UDim2.new(0, 12, 0, y)
+		row.BackgroundColor3 = COLORS.Tab
+		row.BorderSizePixel = 0
+		row.Parent = page
+		addCorner(row, 8)
+
+		local lbl = Instance.new("TextLabel")
+		lbl.Size = UDim2.new(0.5, -10, 1, 0)
+		lbl.Position = UDim2.new(0, 12, 0, 0)
+		lbl.BackgroundTransparency = 1
+		lbl.Text = labelText
+		lbl.TextColor3 = COLORS.Text
+		lbl.Font = Enum.Font.GothamMedium
+		lbl.TextSize = 14
+		lbl.TextXAlignment = Enum.TextXAlignment.Left
+		lbl.Parent = row
+		return row
+	end
+
+	-- Close keybind
+	local keyRow = makeRow(14, "Close keybind")
+	local keyBtn = Instance.new("TextButton")
+	keyBtn.Size = UDim2.new(0, 90, 0, 28)
+	keyBtn.Position = UDim2.new(1, -102, 0.5, -14)
+	keyBtn.BackgroundColor3 = COLORS.Content
+	keyBtn.BorderSizePixel = 0
+	keyBtn.Text = config.closeKey
+	keyBtn.TextColor3 = COLORS.Accent
+	keyBtn.Font = Enum.Font.GothamBold
+	keyBtn.TextSize = 14
+	keyBtn.Parent = keyRow
+	addCorner(keyBtn, 6)
+	addStroke(keyBtn, COLORS.Stroke, 1)
+
+	local listening = false
+	keyBtn.MouseButton1Click:Connect(function()
+		if listening then return end
+		listening = true
+		keyBtn.Text = "..."
+		keyBtn.TextColor3 = COLORS.TextDim
+
+		local conn
+		conn = UserInputService.InputBegan:Connect(function(input)
+			if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+			local name = input.KeyCode.Name
+			if name == "Unknown" or name == "L" then return end
+			closeKeyCode = input.KeyCode
+			config.closeKey = name
+			keyBtn.Text = name
+			keyBtn.TextColor3 = COLORS.Accent
+			title.Text = "Plexer  [" .. name .. "] close  [L] kill"
+			saveConfig()
+			listening = false
+			conn:Disconnect()
+		end)
+	end)
+
+	-- UI size slider
+	local sizeLabel = Instance.new("TextLabel")
+	sizeLabel.Size = UDim2.new(1, -24, 0, 18)
+	sizeLabel.Position = UDim2.new(0, 12, 0, 60)
+	sizeLabel.BackgroundTransparency = 1
+	sizeLabel.Text = "UI size  " .. UI_W .. "x" .. UI_H
+	sizeLabel.TextColor3 = COLORS.Text
+	sizeLabel.Font = Enum.Font.GothamMedium
+	sizeLabel.TextSize = 14
+	sizeLabel.TextXAlignment = Enum.TextXAlignment.Left
+	sizeLabel.Parent = page
+
+	local sliderBg = Instance.new("Frame")
+	sliderBg.Size = UDim2.new(1, -24, 0, 8)
+	sliderBg.Position = UDim2.new(0, 12, 0, 86)
+	sliderBg.BackgroundColor3 = COLORS.Tab
+	sliderBg.BorderSizePixel = 0
+	sliderBg.Parent = page
+	addCorner(sliderBg, 4)
+
+	local MIN_W, MAX_W = 400, 1000
+	local function widthToAlpha(w) return (w - MIN_W) / (MAX_W - MIN_W) end
+	local function alphaToWidth(a) return math.floor(MIN_W + a * (MAX_W - MIN_W) + 0.5) end
+
+	local sliderFill = Instance.new("Frame")
+	sliderFill.Size = UDim2.new(widthToAlpha(UI_W), 0, 1, 0)
+	sliderFill.BackgroundColor3 = COLORS.Accent
+	sliderFill.BorderSizePixel = 0
+	sliderFill.Parent = sliderBg
+	addCorner(sliderFill, 4)
+
+	local sliderKnob = Instance.new("Frame")
+	sliderKnob.Size = UDim2.new(0, 16, 0, 16)
+	sliderKnob.Position = UDim2.new(widthToAlpha(UI_W), -8, 0.5, -8)
+	sliderKnob.BackgroundColor3 = COLORS.Text
+	sliderKnob.BorderSizePixel = 0
+	sliderKnob.Parent = sliderBg
+	addCorner(sliderKnob, 8)
+
+	local sliding = false
+	local function setSizeFromAlpha(a)
+		a = math.clamp(a, 0, 1)
+		local w = alphaToWidth(a)
+		local h = math.clamp(math.floor(w * 0.72 + 0.5), 280, 700)
+		UI_W, UI_H = w, h
+		config.uiWidth, config.uiHeight = w, h
+		sliderFill.Size = UDim2.new(a, 0, 1, 0)
+		sliderKnob.Position = UDim2.new(a, -8, 0.5, -8)
+		sizeLabel.Text = "UI size  " .. w .. "x" .. h
+		main.Size = UDim2.new(0, w, 0, h)
+		main.Position = UDim2.new(0.5, -math.floor(w / 2), 0.5, -math.floor(h / 2))
+	end
+
+	sliderBg.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			sliding = true
+			setSizeFromAlpha((input.Position.X - sliderBg.AbsolutePosition.X) / sliderBg.AbsoluteSize.X)
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if not sliding then return end
+		if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+		setSizeFromAlpha((input.Position.X - sliderBg.AbsolutePosition.X) / math.max(sliderBg.AbsoluteSize.X, 1))
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			if sliding then sliding = false saveConfig() end
+		end
+	end)
+
+	-- Theme presets
+	local colorTitle = Instance.new("TextLabel")
+	colorTitle.Size = UDim2.new(1, -24, 0, 18)
+	colorTitle.Position = UDim2.new(0, 12, 0, 110)
+	colorTitle.BackgroundTransparency = 1
+	colorTitle.Text = "Theme"
+	colorTitle.TextColor3 = COLORS.Text
+	colorTitle.Font = Enum.Font.GothamMedium
+	colorTitle.TextSize = 14
+	colorTitle.TextXAlignment = Enum.TextXAlignment.Left
+	colorTitle.Parent = page
+
+	local THEMES = {
+		{name = "Black", accent = {180, 180, 180}, main = {8, 8, 8}, tab = {16, 16, 16}, content = {12, 12, 12}},
+		{name = "Purple", accent = {160, 80, 255}, main = {10, 8, 16}, tab = {20, 14, 28}, content = {14, 10, 20}},
+		{name = "Blue", accent = {80, 140, 255}, main = {8, 10, 16}, tab = {14, 18, 28}, content = {10, 14, 22}},
+	}
+
+	for i, theme in ipairs(THEMES) do
+		local btn = Instance.new("TextButton")
+		btn.Size = UDim2.new(0.32, -4, 0, 32)
+		btn.Position = UDim2.new((i - 1) * 0.33, 12, 0, 134)
+		btn.BackgroundColor3 = COLORS.Tab
+		btn.BorderSizePixel = 0
+		btn.Text = theme.name
+		btn.TextColor3 = Color3.fromRGB(theme.accent[1], theme.accent[2], theme.accent[3])
+		btn.Font = Enum.Font.GothamBold
+		btn.TextSize = 12
+		btn.Parent = page
+		addCorner(btn, 6)
+		btn.MouseButton1Click:Connect(function()
+			COLORS.Accent = Color3.fromRGB(unpack(theme.accent))
+			COLORS.Main = Color3.fromRGB(unpack(theme.main))
+			COLORS.Tab = Color3.fromRGB(unpack(theme.tab))
+			COLORS.Content = Color3.fromRGB(unpack(theme.content))
+			main.BackgroundColor3 = COLORS.Main
+			titleBar.BackgroundColor3 = COLORS.Tab
+			content.BackgroundColor3 = COLORS.Content
+			config.theme = theme.name
+			saveConfig()
+		end)
+	end
+
+	-- Reset Key / HWID Lock
+	local saveRow = makeRow(178, "Reset Key / HWID Lock")
 	local resetKeyBtn = Instance.new("TextButton")
-	resetKeyBtn.Size = UDim2.new(0, 160, 0, 32)
-	resetKeyBtn.Position = UDim2.new(0, 12, 0, 12)
+	resetKeyBtn.Size = UDim2.new(0, 110, 0, 28)
+	resetKeyBtn.Position = UDim2.new(1, -122, 0.5, -14)
 	resetKeyBtn.BackgroundColor3 = COLORS.Danger
 	resetKeyBtn.BorderSizePixel = 0
-	resetKeyBtn.Text = "Reset Key & Rejoin"
+	resetKeyBtn.Text = "Reset Key"
 	resetKeyBtn.TextColor3 = Color3.new(1, 1, 1)
 	resetKeyBtn.Font = Enum.Font.GothamBold
 	resetKeyBtn.TextSize = 13
-	resetKeyBtn.Parent = page
+	resetKeyBtn.Parent = saveRow
 	addCorner(resetKeyBtn, 6)
 
 	resetKeyBtn.MouseButton1Click:Connect(function()
@@ -783,21 +1066,86 @@ do
 	end)
 end
 
--- ─── Info Tab ─────────────────────────────────────────────
+-- ─── Info Tab Content (Avatar & Profile Fetcher) ───────────
 do
 	local infoPage = pages["Info"]
+	local DEV_USERNAME = "xxxvcxxxv"
+
+	local avatarFrame = Instance.new("Frame")
+	avatarFrame.Size = UDim2.new(0, 80, 0, 80)
+	avatarFrame.Position = UDim2.new(0.5, -40, 0, 24)
+	avatarFrame.BackgroundColor3 = COLORS.Tab
+	avatarFrame.BorderSizePixel = 0
+	avatarFrame.Parent = infoPage
+	addCorner(avatarFrame, 40)
+	addStroke(avatarFrame, COLORS.Stroke, 1)
+
+	local avatarImg = Instance.new("ImageLabel")
+	avatarImg.Size = UDim2.new(1, 0, 1, 0)
+	avatarImg.BackgroundTransparency = 1
+	avatarImg.Image = ""
+	avatarImg.Parent = avatarFrame
+	addCorner(avatarImg, 40)
+
+	local displayLbl = Instance.new("TextLabel")
+	displayLbl.Size = UDim2.new(1, -20, 0, 24)
+	displayLbl.Position = UDim2.new(0, 10, 0, 116)
+	displayLbl.BackgroundTransparency = 1
+	displayLbl.Text = "..."
+	displayLbl.TextColor3 = COLORS.Text
+	displayLbl.Font = Enum.Font.GothamBold
+	displayLbl.TextSize = 18
+	displayLbl.TextXAlignment = Enum.TextXAlignment.Center
+	displayLbl.Parent = infoPage
+
+	local userLbl = Instance.new("TextLabel")
+	userLbl.Size = UDim2.new(1, -20, 0, 20)
+	userLbl.Position = UDim2.new(0, 10, 0, 140)
+	userLbl.BackgroundTransparency = 1
+	userLbl.Text = "@" .. DEV_USERNAME
+	userLbl.TextColor3 = COLORS.TextDim
+	userLbl.Font = Enum.Font.Gotham
+	userLbl.TextSize = 14
+	userLbl.TextXAlignment = Enum.TextXAlignment.Center
+	userLbl.Parent = infoPage
+
 	local creditLbl = Instance.new("TextLabel")
 	creditLbl.Size = UDim2.new(1, -20, 0, 22)
-	creditLbl.Position = UDim2.new(0, 10, 0, 20)
+	creditLbl.Position = UDim2.new(0, 10, 0, 180)
 	creditLbl.BackgroundTransparency = 1
-	creditLbl.Text = "Plexer — Connected to GitHub Keys"
+	creditLbl.Text = "Plexer — made by Complex"
 	creditLbl.TextColor3 = COLORS.Accent
 	creditLbl.Font = Enum.Font.GothamMedium
 	creditLbl.TextSize = 14
+	creditLbl.TextXAlignment = Enum.TextXAlignment.Center
 	creditLbl.Parent = infoPage
+
+	local verLbl = Instance.new("TextLabel")
+	verLbl.Size = UDim2.new(1, -20, 0, 20)
+	verLbl.Position = UDim2.new(0, 10, 0, 210)
+	verLbl.BackgroundTransparency = 1
+	verLbl.Text = "Version 1.0.0"
+	verLbl.TextColor3 = COLORS.TextDim
+	verLbl.Font = Enum.Font.Gotham
+	verLbl.TextSize = 13
+	verLbl.TextXAlignment = Enum.TextXAlignment.Center
+	verLbl.Parent = infoPage
+
+	task.spawn(function()
+		local okId, userId = pcall(function() return Players:GetUserIdFromNameAsync(DEV_USERNAME) end)
+		if not okId or not userId then return end
+		local okInfo, infos = pcall(function() return game:GetService("UserService"):GetUserInfosByUserIdsAsync({userId}) end)
+		if okInfo and infos and infos[1] and infos[1].DisplayName then
+			displayLbl.Text = infos[1].DisplayName
+		else
+			displayLbl.Text = DEV_USERNAME
+		end
+		local okThumb, url = pcall(function() return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150) end)
+		if okThumb and url then avatarImg.Image = url end
+	end)
 end
 
--- ─── Tab Switching Logic ──────────────────────────────────
+-- ─── Tab Logic ────────────────────────────────────────────
 local activeTab = nil
 
 local function setTab(name)
